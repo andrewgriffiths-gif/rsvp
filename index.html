@@ -1,0 +1,2280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>RSVP · Word Reader</title>
+
+<!-- iOS PWA meta -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="RSVP" />
+<meta name="theme-color" content="#15140f" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#f3eee4" media="(prefers-color-scheme: light)" />
+<meta name="format-detection" content="telephone=no" />
+
+<!-- Inline icon (the head links it as apple-touch-icon and the manifest references it too) -->
+<link rel="apple-touch-icon" href="data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20180%20180%22%3E%3Crect%20width%3D%22180%22%20height%3D%22180%22%20rx%3D%2238%22%20fill%3D%22%2315140f%22%2F%3E%3Ctext%20x%3D%2290%22%20y%3D%22122%22%20text-anchor%3D%22middle%22%20font-family%3D%22Georgia%2C%20serif%22%20font-size%3D%22112%22%20font-weight%3D%22500%22%20font-style%3D%22italic%22%20fill%3D%22%23ece7d9%22%3ER%3C%2Ftext%3E%3Ccircle%20cx%3D%22125%22%20cy%3D%2272%22%20r%3D%226%22%20fill%3D%22%23e26a45%22%2F%3E%3C%2Fsvg%3E" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --bg: #f3eee4;
+  --bg-deep: #e8e1d2;
+  --ink: #1a1814;
+  --ink-soft: #4a463e;
+  --ink-faint: #8a8478;
+  --rule: #cdc4b1;
+  --paper: #faf6ec;
+  --accent: #b8421f;
+  --accent-soft: rgba(184, 66, 31, 0.14);
+  --serif: "Fraunces", "Iowan Old Style", "Apple Garamond", "Baskerville", Georgia, serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left:   env(safe-area-inset-left, 0px);
+  --safe-right:  env(safe-area-inset-right, 0px);
+}
+
+html[data-theme="dark"] {
+  --bg: #15140f;
+  --bg-deep: #0d0c08;
+  --ink: #ece7d9;
+  --ink-soft: #b8b1a0;
+  --ink-faint: #6e6a5e;
+  --rule: #2c2a23;
+  --paper: #1c1a14;
+  --accent: #e26a45;
+  --accent-soft: rgba(226, 106, 69, 0.18);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  overscroll-behavior: none;
+  -webkit-user-select: none; user-select: none;
+}
+body {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+  overflow: hidden;
+  /* the dynamic viewport unit on iOS handles the URL bar collapse */
+  height: 100dvh;
+}
+
+/* ────── view stack ────── */
+.view {
+  position: fixed;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+}
+.view.active { display: flex; }
+
+/* ============================================================
+ *  LIBRARY VIEW
+ * ============================================================ */
+#view-library {
+  background: var(--bg);
+  padding-top: calc(var(--safe-top) + 18px);
+  padding-bottom: var(--safe-bottom);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+}
+
+.lib-header {
+  padding: 0 20px 18px;
+  border-bottom: 1px solid var(--rule);
+  flex: 0 0 auto;
+}
+.lib-mast {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.lib-mark {
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 30px;
+  letter-spacing: -0.02em;
+  font-variation-settings: "opsz" 144;
+  line-height: 1;
+}
+.lib-mark .accent { color: var(--accent); font-style: italic; }
+.lib-tag {
+  margin-top: 4px;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.lib-actions { display: flex; gap: 8px; }
+.icon-btn {
+  appearance: none; border: 1px solid var(--rule);
+  background: transparent; color: var(--ink);
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; padding: 0;
+  font-family: var(--mono); font-size: 14px;
+  transition: background 120ms;
+}
+.icon-btn:active { background: var(--ink); color: var(--bg); }
+
+/* shelf */
+.shelf {
+  flex: 1 1 auto;
+  padding: 22px 20px 80px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 22px 18px;
+  align-content: start;
+}
+@media (min-width: 480px) { .shelf { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 720px) { .shelf { grid-template-columns: repeat(4, 1fr); } }
+
+.book {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: pointer;
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+}
+.book .cover {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  box-shadow: 0 1px 0 rgba(0,0,0,0.04), 0 16px 30px -22px rgba(0,0,0,0.45);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 14px 14px 12px;
+}
+.book .cover img {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.book .cover .typo-title {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-variation-settings: "opsz" 144;
+  font-size: clamp(15px, 4.5vw, 19px);
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  word-break: break-word;
+  hyphens: auto;
+  position: relative;
+  z-index: 1;
+}
+.book .cover .typo-author {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 11px;
+  color: var(--ink-soft);
+  position: relative;
+  z-index: 1;
+}
+.book .cover .typo-rule {
+  height: 1px;
+  background: var(--accent);
+  width: 28px;
+  position: relative;
+  z-index: 1;
+  margin: 6px 0;
+}
+
+.book .cover .progress-tag {
+  position: absolute;
+  bottom: 8px; right: 10px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 0;
+  z-index: 2;
+}
+html[data-theme="light"] .book .cover .progress-tag { background: rgba(255,255,255,0.85); color: var(--ink); }
+
+.book .meta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.book .meta .title {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  line-height: 1.15;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.book .meta .author {
+  font-style: italic;
+  font-family: var(--serif);
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.book .meta .resume {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.book .meta .resume.done { color: var(--ink-faint); }
+.book .actions {
+  position: absolute;
+  top: 6px; right: 6px;
+  display: flex;
+  gap: 4px;
+  z-index: 3;
+}
+.book .actions button {
+  appearance: none;
+  border: none;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  width: 26px; height: 26px;
+  font-size: 11px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+html[data-theme="light"] .book .actions button { background: rgba(0,0,0,0.55); }
+
+/* empty state */
+.empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 60px 24px;
+  color: var(--ink-faint);
+  gap: 14px;
+}
+.empty h2 {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 22px;
+  color: var(--ink);
+  margin: 0;
+}
+.empty p { margin: 0; max-width: 280px; line-height: 1.5; }
+
+/* primary CTA button */
+.btn {
+  appearance: none;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--bg);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 12px 18px;
+  cursor: pointer;
+}
+.btn:active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.ghost { background: transparent; color: var(--ink); }
+
+/* ============================================================
+ *  READER VIEW (fullscreen, distraction-free)
+ * ============================================================ */
+#view-reader {
+  background: var(--bg);
+  position: fixed; inset: 0;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* the word stage takes the whole screen */
+.reader-stage {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+
+/* The word — sized in vw so it fills the screen */
+.rsvp-word {
+  position: absolute;
+  top: 50%;
+  white-space: nowrap;
+  font-family: var(--serif);
+  font-variation-settings: "opsz" 144;
+  font-weight: 400;
+  /* big — basically the full width minus margins */
+  font-size: clamp(42px, 14vw, 130px);
+  letter-spacing: -0.005em;
+  line-height: 1;
+  color: var(--ink);
+  transform: translateY(-50%);
+  will-change: transform, left;
+}
+.rsvp-word .focus { color: var(--accent); }
+
+/* anchor guide hairlines */
+.anchor-guide {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  opacity: 0;
+  transition: opacity 220ms ease;
+  height: clamp(72px, 22vw, 200px);
+}
+.anchor-guide.visible { opacity: 1; }
+.anchor-guide .bar {
+  position: relative;
+  width: clamp(80px, 26vw, 220px);
+  margin-left: calc(-0.5 * clamp(80px, 26vw, 220px));
+}
+.anchor-guide .bar.top    { height: 1px; background: var(--ink-faint); }
+.anchor-guide .bar.bottom { height: 1px; background: var(--ink-faint); }
+.anchor-guide .tick {
+  position: absolute; left: 50%;
+  width: 1px; height: 14px;
+  background: var(--accent);
+  transform: translateX(-50%);
+}
+.anchor-guide .tick.top    { top: 0; }
+.anchor-guide .tick.bottom { bottom: 0; }
+
+/* sentence/para/chapter boundary mark */
+.boundary-mark {
+  position: absolute;
+  bottom: calc(50% - clamp(58px, 18vw, 160px));
+  left: 50%;
+  transform: translateX(-50%);
+  height: 1px;
+  width: 60vw;
+  max-width: 480px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.boundary-mark.visible { opacity: 0.55; }
+
+/* ────── reader chrome (auto-hides) ────── */
+.chrome {
+  transition: opacity 280ms ease, transform 280ms ease;
+  pointer-events: auto;
+}
+.chrome.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.chrome.hidden.top    { transform: translateY(-12px); }
+.chrome.hidden.bottom { transform: translateY(12px); }
+
+/* top bar */
+.reader-top {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  padding: calc(var(--safe-top) + 10px) 16px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  z-index: 10;
+  background: linear-gradient(to bottom, var(--bg) 30%, transparent);
+}
+.reader-top-left, .reader-top-right {
+  display: flex; align-items: center; gap: 8px;
+  flex: 1; min-width: 0;
+}
+.reader-top-right { justify-content: flex-end; }
+.reader-top .chapter-now {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reader-top .chapter-now b { color: var(--ink); font-weight: 500; }
+
+.tap-btn {
+  appearance: none; border: none; background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 18px;
+  width: 38px; height: 38px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; padding: 0;
+}
+.tap-btn:active { color: var(--accent); }
+
+/* bottom transport */
+.reader-bottom {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  padding: 12px 16px calc(var(--safe-bottom) + 14px);
+  z-index: 10;
+  background: linear-gradient(to top, var(--bg) 30%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.transport-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.transport-row .play {
+  width: 64px; height: 48px;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--bg);
+  appearance: none; cursor: pointer; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.transport-row .play:active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.progress-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+}
+.progress-strip .track {
+  flex: 1;
+  height: 2px;
+  background: var(--rule);
+  position: relative;
+  cursor: pointer;
+  margin: 0 4px;
+}
+.progress-strip .fill {
+  position: absolute; inset: 0 auto 0 0;
+  background: var(--ink);
+  width: 0%;
+}
+.progress-strip .pct { font-variant-numeric: tabular-nums; min-width: 36px; text-align: right; color: var(--ink); }
+
+/* ============================================================
+ *  SETTINGS SHEET (slides up from bottom)
+ * ============================================================ */
+.sheet-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 50;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 240ms ease;
+}
+.sheet-backdrop.open { opacity: 1; pointer-events: auto; }
+
+.sheet {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: var(--bg);
+  z-index: 51;
+  transform: translateY(100%);
+  transition: transform 320ms cubic-bezier(.32,.72,0,1);
+  border-top: 1px solid var(--rule);
+  max-height: 88dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(var(--safe-bottom) + 24px);
+}
+.sheet.open { transform: translateY(0); }
+.sheet-handle {
+  display: flex; justify-content: center;
+  padding: 10px 0 4px;
+}
+.sheet-handle::before {
+  content: "";
+  width: 38px; height: 4px;
+  background: var(--rule);
+  border-radius: 2px;
+}
+.sheet-title {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-variation-settings: "opsz" 144;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  padding: 0 20px 8px;
+  display: flex; align-items: baseline; justify-content: space-between;
+}
+.sheet-title small {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+
+.field {
+  padding: 14px 20px;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.field-label {
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.field-label b {
+  color: var(--ink);
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="range"] {
+  appearance: none; -webkit-appearance: none;
+  width: 100%; height: 32px;
+  background: transparent; margin: 0;
+}
+input[type="range"]::-webkit-slider-runnable-track { height: 1px; background: var(--ink-faint); }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px; height: 22px;
+  background: var(--ink);
+  border: none; border-radius: 50%;
+  margin-top: -10.5px;
+  cursor: pointer;
+}
+input[type="range"]::-moz-range-track { height: 1px; background: var(--ink-faint); }
+input[type="range"]::-moz-range-thumb {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--ink); border: none; cursor: pointer;
+}
+
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  width: 100%;
+}
+.seg button {
+  flex: 1;
+  appearance: none; border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 10px 8px;
+  cursor: pointer;
+  border-right: 1px solid var(--rule);
+}
+.seg button:last-child { border-right: none; }
+.seg button.on { background: var(--ink); color: var(--bg); }
+
+select {
+  appearance: none; -webkit-appearance: none;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 10px 28px 10px 12px;
+  cursor: pointer;
+  border-radius: 0;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-faint) 50%),
+                    linear-gradient(-45deg, transparent 50%, var(--ink-faint) 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  width: 100%;
+}
+
+/* ============================================================
+ *  ADD-BOOK SHEET
+ * ============================================================ */
+.dropzone {
+  border: 1px dashed var(--rule);
+  padding: 22px 16px;
+  text-align: center;
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.dropzone b { font-style: normal; color: var(--ink); }
+.dropzone.drag, .dropzone:active { border-color: var(--accent); background: var(--accent-soft); }
+
+.cover-preview {
+  display: flex; gap: 14px; align-items: center;
+}
+.cover-preview .thumb {
+  width: 64px; height: 96px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.cover-preview .thumb img { width: 100%; height: 100%; object-fit: cover; }
+.cover-preview .thumb .placeholder {
+  font-family: var(--serif); font-style: italic;
+  color: var(--ink-faint); font-size: 11px;
+}
+
+input[type="text"] {
+  appearance: none; -webkit-appearance: none;
+  width: 100%;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 15px;
+  padding: 10px 12px;
+  border-radius: 0;
+}
+input[type="text"]:focus { outline: none; border-color: var(--ink); }
+
+/* ============================================================
+ *  INSTALL HELP MODAL
+ * ============================================================ */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 80;
+  display: none;
+  align-items: center; justify-content: center;
+  padding: 20px;
+}
+.modal-backdrop.open { display: flex; }
+.modal {
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  max-width: 360px; width: 100%;
+  padding: 24px;
+  display: flex; flex-direction: column; gap: 14px;
+  max-height: 90dvh;
+  overflow-y: auto;
+}
+.modal h2 {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-variation-settings: "opsz" 144;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.modal p {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+.modal .steps {
+  font-family: var(--serif);
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--ink);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.modal .steps span b { color: var(--accent); }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+
+/* ============================================================
+ *  TOAST
+ * ============================================================ */
+.toast {
+  position: fixed;
+  bottom: calc(var(--safe-bottom) + 24px);
+  left: 50%;
+  transform: translate(-50%, 30px);
+  background: var(--ink);
+  color: var(--bg);
+  padding: 10px 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 220ms, transform 220ms;
+  pointer-events: none;
+}
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* fade transitions for word changes */
+.rsvp-word { transition: opacity 50ms linear; }
+.rsvp-word.flash { opacity: 0; }
+</style>
+</head>
+<body>
+
+<!-- ════════════ LIBRARY VIEW ════════════ -->
+<div class="view active" id="view-library">
+  <header class="lib-header">
+    <div class="lib-mast">
+      <div>
+        <div class="lib-mark">RSVP <span class="accent">·</span></div>
+        <div class="lib-tag">Word Reader · One word at a time</div>
+      </div>
+      <div class="lib-actions">
+        <button class="icon-btn" id="btn-diag" title="Storage diagnostic" aria-label="Diagnostic">i</button>
+        <button class="icon-btn" id="btn-export" title="Export library">↓</button>
+        <button class="icon-btn" id="btn-import" title="Import library">↑</button>
+        <button class="icon-btn" id="btn-add" title="Add a book" aria-label="Add book">+</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="shelf" id="shelf"></main>
+</div>
+
+<!-- ════════════ READER VIEW ════════════ -->
+<div class="view" id="view-reader">
+  <div class="reader-stage" id="reader-stage">
+    <div class="anchor-guide" id="anchor-guide">
+      <div class="bar top"><span class="tick top"></span></div>
+      <div class="bar bottom"><span class="tick bottom"></span></div>
+    </div>
+    <div class="rsvp-word" id="rsvp-word">…</div>
+    <div class="boundary-mark" id="boundary-mark"></div>
+  </div>
+
+  <div class="reader-top chrome top" id="reader-top">
+    <div class="reader-top-left">
+      <button class="tap-btn" id="btn-back-lib" aria-label="Back to library">‹</button>
+      <div class="chapter-now"><b id="chapter-now">—</b></div>
+    </div>
+    <div class="reader-top-right">
+      <span class="chapter-now"><span id="word-meter">0 / 0</span></span>
+      <button class="tap-btn" id="btn-settings" aria-label="Settings">⚙</button>
+    </div>
+  </div>
+
+  <div class="reader-bottom chrome bottom" id="reader-bottom">
+    <div class="progress-strip">
+      <span id="time-elapsed">0:00</span>
+      <div class="track" id="progress-track"><div class="fill" id="progress-fill"></div></div>
+      <span class="pct" id="progress-pct">0%</span>
+    </div>
+    <div class="transport-row">
+      <button class="tap-btn" id="btn-prev-chap" aria-label="Previous chapter">⇤</button>
+      <button class="tap-btn" id="btn-prev-para" aria-label="Previous paragraph">‹‹</button>
+      <button class="tap-btn" id="btn-prev-word" aria-label="Previous word">‹</button>
+      <button class="play" id="btn-play" aria-label="Play / pause">
+        <svg id="icon-play" width="14" height="14" viewBox="0 0 14 14"><polygon points="3,1 13,7 3,13" fill="currentColor"/></svg>
+      </button>
+      <button class="tap-btn" id="btn-next-word" aria-label="Next word">›</button>
+      <button class="tap-btn" id="btn-next-para" aria-label="Next paragraph">››</button>
+      <button class="tap-btn" id="btn-next-chap" aria-label="Next chapter">⇥</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ SETTINGS SHEET ════════════ -->
+<div class="sheet-backdrop" id="sheet-backdrop"></div>
+<div class="sheet" id="sheet-settings">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Settings <small>RSVP</small></div>
+
+  <div class="field">
+    <div class="field-label"><span>Reading speed</span><b id="lbl-wpm">300 wpm</b></div>
+    <input type="range" id="ctrl-wpm" min="100" max="1000" step="10" value="300">
+  </div>
+
+  <div class="field">
+    <div class="field-label"><span>Anchor position</span><b id="lbl-anchor">36%</b></div>
+    <input type="range" id="ctrl-anchor" min="30" max="40" step="1" value="36">
+  </div>
+
+  <div class="field">
+    <div class="field-label"><span>Word size</span><b id="lbl-size">M</b></div>
+    <input type="range" id="ctrl-size" min="60" max="180" step="2" value="100">
+  </div>
+
+  <div class="field">
+    <div class="field-label"><span>Typeface</span></div>
+    <div class="seg" id="ctrl-font">
+      <button data-v="serif" class="on">Serif</button>
+      <button data-v="sans">Sans</button>
+      <button data-v="atkinson">Atkinson</button>
+      <button data-v="mono">Mono</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <div class="field-label"><span>Theme</span></div>
+    <div class="seg" id="ctrl-theme">
+      <button data-v="light" class="on">Paper</button>
+      <button data-v="dark">Ink</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <div class="field-label"><span>Anchor guide</span></div>
+    <div class="seg" id="ctrl-guide">
+      <button data-v="on" class="on">Show</button>
+      <button data-v="off">Hide</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <div class="field-label"><span>Pacing pauses</span></div>
+    <div class="seg" id="ctrl-pacing">
+      <button data-v="on" class="on">On</button>
+      <button data-v="off">Off</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <div class="field-label"><span>Auto-hide controls</span></div>
+    <div class="seg" id="ctrl-autohide">
+      <button data-v="on" class="on">On</button>
+      <button data-v="off">Off</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <div class="field-label"><span>Jump to chapter</span></div>
+    <select id="ctrl-chapter"></select>
+  </div>
+</div>
+
+<!-- ════════════ ADD-BOOK SHEET ════════════ -->
+<div class="sheet" id="sheet-add">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Add a book <small>·</small></div>
+
+  <div class="field">
+    <div class="field-label"><span>Book file</span></div>
+    <label class="dropzone" id="add-dropzone">
+      <span id="add-dropzone-label">Tap to choose a <b>.rsvp</b> or <b>.txt</b> file</span>
+      <input type="file" id="add-file" accept=".rsvp,.txt,text/plain" hidden>
+    </label>
+  </div>
+
+  <div class="field">
+    <div class="field-label"><span>Title</span></div>
+    <input type="text" id="add-title" placeholder="Book title">
+  </div>
+
+  <div class="field">
+    <div class="field-label"><span>Author</span></div>
+    <input type="text" id="add-author" placeholder="Author (optional)">
+  </div>
+
+  <div class="field">
+    <div class="field-label"><span>Cover (optional)</span></div>
+    <div class="cover-preview">
+      <label class="thumb" id="cover-thumb">
+        <span class="placeholder" id="cover-placeholder">Tap</span>
+        <img id="cover-img" hidden alt="">
+        <input type="file" id="add-cover" accept="image/*" hidden>
+      </label>
+      <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:6px;">
+        <button class="btn ghost" id="btn-cover-clear" type="button">Clear cover</button>
+        <span style="font-family:var(--mono); font-size:10px; color:var(--ink-faint); letter-spacing:0.08em;">
+          Photo or any image. Auto-resized.
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div class="field" style="display:flex; flex-direction:row; gap:10px; justify-content:flex-end;">
+    <button class="btn ghost" id="btn-add-cancel">Cancel</button>
+    <button class="btn" id="btn-add-save">Add to library</button>
+  </div>
+</div>
+
+<!-- ════════════ INSTALL HELP MODAL ════════════ -->
+<div class="modal-backdrop" id="install-modal">
+  <div class="modal">
+    <h2>Install on your iPhone</h2>
+    <p>For the best experience — fullscreen, with its own home-screen icon and offline support — install this app to your home screen.</p>
+    <div class="steps">
+      <span>1. Tap the <b>Share</b> button in Safari (the square with the arrow ↑).</span>
+      <span>2. Scroll down and tap <b>Add to Home Screen</b>.</span>
+      <span>3. Tap <b>Add</b> in the top right.</span>
+    </div>
+    <p style="font-size:13px;">Open it from your home screen any time after that. Books, covers and progress are kept on this device.</p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="btn-install-later">Later</button>
+      <button class="btn" id="btn-install-ok">Got it</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ DIAGNOSTIC MODAL ════════════ -->
+<div class="modal-backdrop" id="diag-modal">
+  <div class="modal">
+    <h2>Storage diagnostic</h2>
+    <p style="font-size:12.5px;">Use this to check whether your settings and books are surviving across app launches.</p>
+    <div id="diag-content" style="font-family:var(--mono); font-size:11px; line-height:1.6; color:var(--ink); white-space:pre-wrap; word-break:break-word; background:var(--paper); padding:12px; border:1px solid var(--rule); max-height:50dvh; overflow:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="btn-diag-clear">Reset all data</button>
+      <button class="btn" id="btn-diag-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ TOAST ════════════ -->
+<div class="toast" id="toast"></div>
+
+<input type="file" id="import-file" accept=".json,application/json" hidden>
+
+<script>
+"use strict";
+
+/* ============================================================
+ * Embedded demo book (same as the firmware demo)
+ * ============================================================ */
+const DEMO_RSVP = "@rsvp 1\n@title European Letter Demo\n@author Codex\n@chapter What This Shows\n@para\nThis demo book exercises the accented, Baltic, Sami, and extended-Latin letters that the current firmware should now preserve, pace, and render correctly.\n@para\nIf the update worked, these chapters should show real letters instead of question marks.\n\n@chapter Quotes And Brackets\n@para\n\u201cQuoted text,\u201d \u2018single quotes,\u2019 \u00abguillemets,\u00bb and \u2039angle quotes\u203a should stay visible.\n@para\n(Parentheses) [brackets] {braces} <angles> should stay wrapped around words.\n\n@chapter Germanic And Nordic\n@para\n\u00c4rger gr\u00f6\u00dfer \u00dcbermut Stra\u00dfe Fu\u00dfg\u00e4nger M\u00e4dchen sch\u00f6n k\u00fchl.\n@para\n\u00c6sir \u00d8resund \u00c5lesund bl\u00e5b\u00e6r sm\u00f8rrebr\u00f8d \u00deingvellir \u00fej\u00f3\u00f0vegur ve\u00f0ur.\n\n@chapter French And Western European\n@para\n\u0152uvre c\u0153ur s\u0153ur gar\u00e7on fran\u00e7ais No\u00ebl d\u00e9j\u00e0 fa\u00e7ade ma\u00efs.\n\n@chapter Polish Romanian And Turkish\n@para\n\u0141\u00f3d\u017a ksi\u0105\u017c\u0119 \u015al\u0105sk \u017bubr \u0179r\u00f3d\u0142o \u0106ma d\u017awi\u0119k pi\u0119\u0107.\n@para\n\u021aar\u0103 \u0218tiin\u021b\u0103 \u00een\u021belegere \u0103sta rom\u00e2n\u0103 \u00eenger.\n@para\n\u0130zmir \u0131\u015f\u0131k \u00e7a\u011fda\u015f \u00f6\u011f\u00fct \u015feker \u00fcz\u00fcm.\n";
+
+/* ============================================================
+ * .rsvp parser
+ * ============================================================ */
+function parseRsvp(raw) {
+  if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+  const looksLikeRsvp = /^@rsvp\b/m.test(raw) || /^@(title|author|chapter|para)\b/m.test(raw);
+
+  const out = { title: "Untitled", author: "", words: [], chapters: [] };
+  let chapterIndex = -1;
+  let paragraphIndex = -1;
+  let paragraphPending = false;
+
+  const ensureChapter = (title) => {
+    chapterIndex += 1;
+    out.chapters.push({ title: title || ("Chapter " + (chapterIndex + 1)), wordIndex: out.words.length });
+    paragraphIndex = -1;
+  };
+  const startNewParagraph = () => {
+    if (chapterIndex < 0) ensureChapter("Beginning");
+    paragraphIndex += 1;
+  };
+  const directiveValue = (line, directive) => line.slice(directive.length).trim();
+  const pushWords = (line) => {
+    if (paragraphPending || chapterIndex < 0) {
+      startNewParagraph();
+      paragraphPending = false;
+    }
+    const tokens = line.trim().split(/\s+/).filter(Boolean);
+    for (const tok of tokens) {
+      out.words.push({
+        text: tok,
+        chapterIndex, paragraphIndex,
+        sentenceEnd: endsSentence(tok)
+      });
+    }
+  };
+
+  for (let line of raw.split(/\r?\n/)) {
+    if (!looksLikeRsvp) {
+      if (line.trim() === "") { paragraphPending = true; continue; }
+      pushWords(line); continue;
+    }
+    if (line.trim() === "") { paragraphPending = true; continue; }
+    if (line.startsWith("@@")) { pushWords(line.slice(1)); continue; }
+    if (line.startsWith("@")) {
+      const lo = line.toLowerCase();
+      if (lo.startsWith("@rsvp") || lo.startsWith("@source")) continue;
+      if (lo.startsWith("@title"))  { out.title  = directiveValue(line,"@title")  || out.title;  continue; }
+      if (lo.startsWith("@author")) { out.author = directiveValue(line,"@author"); continue; }
+      if (lo.startsWith("@para"))   { paragraphPending = true; continue; }
+      if (lo.startsWith("@chapter")){ ensureChapter(directiveValue(line,"@chapter") || "Chapter"); paragraphPending = true; continue; }
+      continue;
+    }
+    pushWords(line);
+  }
+  return out;
+}
+function endsSentence(token) {
+  const t = token.replace(/[\)\]\}\u2019\u201d\u00bb\u203a\"\']+$/, "");
+  if (!t) return false;
+  const last = t.slice(-1);
+  return last === "!" || last === "?" || last === ".";
+}
+
+/* ============================================================
+ * ORP / focus letter (matches firmware findFocusLetterIndex)
+ * ============================================================ */
+function isWordCharacter(ch) { return /[\p{L}\p{N}'\u2019\-]/u.test(ch); }
+function orpOrdinalForLength(len) {
+  if (len <= 1) return 0;
+  if (len <= 5) return 1;
+  if (len <= 9) return 2;
+  if (len <= 13) return 3;
+  return 4;
+}
+function findFocusLetterIndex(word) {
+  const chars = Array.from(word);
+  let n = 0; for (const c of chars) if (isWordCharacter(c)) n++;
+  if (n === 0) return chars.length > 0 ? 0 : -1;
+  const target = Math.min(orpOrdinalForLength(n), n - 1);
+  let cur = 0;
+  for (let i = 0; i < chars.length; i++) {
+    if (!isWordCharacter(chars[i])) continue;
+    if (cur === target) return i;
+    cur++;
+  }
+  return 0;
+}
+
+/* ============================================================
+ * Pacing (firmware constants)
+ * ============================================================ */
+const PACING = {
+  longWordAfterChars: 6,           longWordPercentPerChar: 6,
+  veryLongWordAfterChars: 10,      veryLongWordPercentPerChar: 9,
+  ultraLongWordAfterChars: 14,     ultraLongWordPercentPerChar: 12,
+  longWordMaxPercent: 170,
+  compoundJoinerPercent: 14,       longCompoundWordPercent: 18,
+  technicalConnectorPercent: 8,
+  syllableBonusAfterCount: 2,      syllableBonusPercentPerGroup: 10, syllableBonusMaxPercent: 50,
+  allCapsComplexityPercent: 14,    mixedTokenComplexityPercent: 22,
+  numericTokenComplexityPercent: 10, denseConnectorComplexityPercent: 12,
+  complexWordMaxPercent: 100,
+  commaPausePercent: 45, dashPausePercent: 60, clausePausePercent: 80,
+  ellipsisPausePercent: 110, sentencePausePercent: 135, strongSentencePausePercent: 150,
+  longWordDelayMs: 200, complexWordDelayMs: 200, punctuationDelayMs: 200
+};
+function readableCharacters(w){ let n=0; for(const c of w) if(isWordCharacter(c)) n++; return n; }
+function letterCount(w){ let n=0; for(const c of w) if(/\p{L}/u.test(c)) n++; return n; }
+function digitCount(w){ let n=0; for(const c of w) if(/\p{Nd}/u.test(c)) n++; return n; }
+function uppercaseCount(w){ let n=0; for(const c of w) if(/\p{Lu}/u.test(c)) n++; return n; }
+function compoundJoinerCount(w){ const c=Array.from(w); let n=0; for(let i=1;i<c.length-1;i++) if(c[i]==="-"&&isWordCharacter(c[i-1])&&isWordCharacter(c[i+1])) n++; return n; }
+function technicalConnectorCount(w){ const c=Array.from(w); let n=0; for(let i=1;i<c.length-1;i++){const x=c[i]; if((x==="-"||x==="/"||x==="_"||x===".")&&isWordCharacter(c[i-1])&&isWordCharacter(c[i+1])) n++;} return n; }
+function approximateSyllableGroupCount(w){ const m = w.toLowerCase().match(/[aeiouyàáâãäåæèéêëìíîïòóôõöøùúûüýÿœ]+/gu); return m ? m.length : 0; }
+function trailingRhythmChar(w){ const t=w.replace(/[\)\]\}\u201d\u2019\u00bb\u203a\"\']+$/,""); if(!t) return ""; const c=t.slice(-1); return ",.;:!?-".includes(c) ? c : ""; }
+function endsWithEllipsis(w){ return /\.\.\.$|\u2026$/.test(w.replace(/[\)\]\}\u201d\u2019\u00bb\u203a\"\']+$/,"")); }
+function lengthBonusPercent(w){
+  const len=readableCharacters(w); if(len===0) return 0;
+  let b=0;
+  if(len>PACING.longWordAfterChars)      b += (len-PACING.longWordAfterChars)*PACING.longWordPercentPerChar;
+  if(len>PACING.veryLongWordAfterChars)  b += (len-PACING.veryLongWordAfterChars)*PACING.veryLongWordPercentPerChar;
+  if(len>PACING.ultraLongWordAfterChars) b += (len-PACING.ultraLongWordAfterChars)*PACING.ultraLongWordPercentPerChar;
+  const j=compoundJoinerCount(w);
+  if(j>0){ b+=j*PACING.compoundJoinerPercent; if(len>=PACING.veryLongWordAfterChars) b+=PACING.longCompoundWordPercent; }
+  const t=technicalConnectorCount(w); if(t>j) b+=(t-j)*PACING.technicalConnectorPercent;
+  return Math.min(PACING.longWordMaxPercent,b);
+}
+function complexityBonusPercent(w){
+  let b=0;
+  const sg=approximateSyllableGroupCount(w);
+  if(sg>PACING.syllableBonusAfterCount) b += Math.min(PACING.syllableBonusMaxPercent,(sg-PACING.syllableBonusAfterCount)*PACING.syllableBonusPercentPerGroup);
+  const lc=letterCount(w), dc=digitCount(w), uc=uppercaseCount(w);
+  if(lc>0&&dc>0) b+=PACING.mixedTokenComplexityPercent; else if(dc>=3) b+=PACING.numericTokenComplexityPercent;
+  if(uc>=2&&uc===lc) b+=PACING.allCapsComplexityPercent;
+  const tc=technicalConnectorCount(w); if(tc>=2) b+=(tc-1)*PACING.denseConnectorComplexityPercent;
+  return Math.min(PACING.complexWordMaxPercent,b);
+}
+function punctuationPausePercent(w,nextLow){
+  if(endsWithEllipsis(w)) return PACING.ellipsisPausePercent;
+  switch(trailingRhythmChar(w)){
+    case ",": return PACING.commaPausePercent;
+    case "-": return PACING.dashPausePercent;
+    case ";": case ":": return PACING.clausePausePercent;
+    case ".": return nextLow ? 0 : PACING.sentencePausePercent;
+    case "!": case "?": return PACING.strongSentencePausePercent;
+    default: return 0;
+  }
+}
+function durationForWord(word,nextWord,baseMs,pacingOn){
+  if(!word||baseMs===0) return baseMs;
+  if(!pacingOn) return baseMs;
+  const nextLow = nextWord && /^[\p{Ll}]/u.test(nextWord);
+  const bonus =
+    Math.round((lengthBonusPercent(word) * PACING.longWordDelayMs)/100) +
+    Math.round((complexityBonusPercent(word) * PACING.complexWordDelayMs)/100) +
+    Math.round((punctuationPausePercent(word,nextLow) * PACING.punctuationDelayMs)/100);
+  return baseMs + bonus;
+}
+
+/* ============================================================
+ * IndexedDB store (books + prefs for durability)
+ * ============================================================ */
+const DB_NAME = "rsvp-reader";
+const DB_VERSION = 2;
+let db = null;
+
+function openDb() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains("books")) {
+        const s = d.createObjectStore("books", { keyPath: "id" });
+        s.createIndex("addedAt", "addedAt");
+      }
+      if (!d.objectStoreNames.contains("prefs")) {
+        d.createObjectStore("prefs", { keyPath: "key" });
+      }
+    };
+    req.onsuccess = () => { db = req.result; res(db); };
+    req.onerror = () => rej(req.error);
+  });
+}
+function txBooks(mode) { return db.transaction("books", mode).objectStore("books"); }
+function txPrefs(mode) { return db.transaction("prefs", mode).objectStore("prefs"); }
+function dbAll() { return new Promise((res, rej) => { const r = txBooks("readonly").getAll(); r.onsuccess = ()=>res(r.result||[]); r.onerror=()=>rej(r.error); }); }
+function dbGet(id){ return new Promise((res,rej)=>{ const r=txBooks("readonly").get(id); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+function dbPut(rec){ return new Promise((res,rej)=>{ const r=txBooks("readwrite").put(rec); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); }); }
+function dbDelete(id){ return new Promise((res,rej)=>{ const r=txBooks("readwrite").delete(id); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); }); }
+function dbPrefsGet(key){ return new Promise((res,rej)=>{ try{ const r=txPrefs("readonly").get(key); r.onsuccess=()=>res(r.result?r.result.value:null); r.onerror=()=>rej(r.error);}catch(e){res(null);} }); }
+function dbPrefsPut(key,value){ return new Promise((res,rej)=>{ try{ const r=txPrefs("readwrite").put({key,value}); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error);}catch(e){res();} }); }
+
+/* book record shape:
+   { id, title, author, source, coverBlob, coverType, words[], chapters[], position, addedAt, lastOpenedAt } */
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+
+/* ============================================================
+ * Settings store (localStorage)
+ * ============================================================ */
+/* ============================================================
+ * Settings store
+ *
+ * Strategy: localStorage is the source of truth for prefs because:
+ *  - it's synchronous (writes commit before pagehide returns)
+ *  - it's tiny (a few hundred bytes), so the localStorage size limits
+ *    don't matter
+ *  - in installed PWAs (Add to Home Screen) on iOS 16.4+, localStorage
+ *    is exempt from the 7-day eviction that hits regular Safari sites
+ *
+ * IndexedDB stores the books (large data + cover blobs).
+ * ============================================================ */
+const PREFS_KEY = "rsvp-prefs-v2";
+const DIAG_KEY  = "rsvp-diag-v1";
+const defaultPrefs = {
+  wpm: 300, anchorPercent: 36, fontSize: 100,
+  font: "serif",
+  guide: true, pacing: true, dark: true, autoHide: true,
+  installPromptShown: false, lastBookId: null
+};
+function loadPrefs() {
+  try {
+    // try v2 first, then fall back to old v1 if you previously had a copy
+    const v2 = localStorage.getItem(PREFS_KEY);
+    if (v2) return Object.assign({}, defaultPrefs, JSON.parse(v2));
+    const v1 = localStorage.getItem("rsvp-prefs-v1");
+    if (v1) return Object.assign({}, defaultPrefs, JSON.parse(v1));
+  } catch {}
+  return { ...defaultPrefs };
+}
+function savePrefs(p) {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(p));
+    // Also bump a "last saved" timestamp so the diagnostic can show
+    // when prefs were last written.
+    localStorage.setItem(PREFS_KEY + "-savedAt", String(Date.now()));
+  } catch (e) {
+    // localStorage can throw in private browsing or when full
+    console.warn("savePrefs failed:", e);
+  }
+}
+
+/* Boot counter — used by the Diagnostic to show whether storage is
+   actually surviving across app launches. */
+function bumpBootCounter() {
+  try {
+    const raw = localStorage.getItem(DIAG_KEY);
+    const d = raw ? JSON.parse(raw) : { boots: 0, firstBootAt: Date.now() };
+    d.boots = (d.boots || 0) + 1;
+    d.lastBootAt = Date.now();
+    localStorage.setItem(DIAG_KEY, JSON.stringify(d));
+    return d;
+  } catch { return { boots: 1 }; }
+}
+function getDiag() {
+  try { return JSON.parse(localStorage.getItem(DIAG_KEY) || "{}"); }
+  catch { return {}; }
+}
+
+/* ============================================================
+ * App state
+ * ============================================================ */
+const prefs = loadPrefs();
+const state = {
+  view: "library",
+  book: null,         // currently loaded book (with words)
+  bookId: null,
+  index: 0,
+  playing: false,
+  timer: null,
+  wakeLock: null,
+  hideTimer: null,
+  chromeHidden: false,
+};
+
+/* ============================================================
+ * Element references
+ * ============================================================ */
+const $ = (id) => document.getElementById(id);
+const els = {
+  shelf: $("shelf"),
+  vLib: $("view-library"), vReader: $("view-reader"),
+  word: $("rsvp-word"), guide: $("anchor-guide"),
+  boundary: $("boundary-mark"),
+  chapterNow: $("chapter-now"), wordMeter: $("word-meter"),
+  pct: $("progress-pct"), elapsed: $("time-elapsed"),
+  fill: $("progress-fill"), track: $("progress-track"),
+  iconPlay: $("icon-play"), btnPlay: $("btn-play"),
+  rTop: $("reader-top"), rBot: $("reader-bottom"), stage: $("reader-stage"),
+  // sheets
+  sheetBackdrop: $("sheet-backdrop"),
+  sheetSettings: $("sheet-settings"), sheetAdd: $("sheet-add"),
+  // settings ctrls
+  ctrlWpm: $("ctrl-wpm"), lblWpm: $("lbl-wpm"),
+  ctrlAnchor: $("ctrl-anchor"), lblAnchor: $("lbl-anchor"),
+  ctrlSize: $("ctrl-size"), lblSize: $("lbl-size"),
+  ctrlChapter: $("ctrl-chapter"),
+  // add sheet
+  addDropzone: $("add-dropzone"), addDropLabel: $("add-dropzone-label"),
+  addFile: $("add-file"),
+  addTitle: $("add-title"), addAuthor: $("add-author"),
+  addCover: $("add-cover"), coverThumb: $("cover-thumb"),
+  coverImg: $("cover-img"), coverPlaceholder: $("cover-placeholder"),
+  // misc
+  toast: $("toast"),
+  importFile: $("import-file"),
+  installModal: $("install-modal"),
+};
+
+/* ============================================================
+ * Toast
+ * ============================================================ */
+let toastTimer = null;
+function toast(msg, ms=1800) {
+  els.toast.textContent = msg;
+  els.toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => els.toast.classList.remove("show"), ms);
+}
+
+/* ============================================================
+ * Theme + prefs application
+ * ============================================================ */
+function applyTheme() { document.documentElement.dataset.theme = prefs.dark ? "dark" : "light"; }
+function applyAllPrefs() {
+  applyTheme();
+  els.ctrlWpm.value = prefs.wpm;
+  els.lblWpm.textContent = prefs.wpm + " wpm";
+  els.ctrlAnchor.value = prefs.anchorPercent;
+  els.lblAnchor.textContent = prefs.anchorPercent + "%";
+  els.ctrlSize.value = prefs.fontSize;
+  applyFontSize();
+  applyFont();
+  document.querySelectorAll("#ctrl-theme button").forEach(b => b.classList.toggle("on", b.dataset.v === (prefs.dark?"dark":"light")));
+  document.querySelectorAll("#ctrl-guide button").forEach(b => b.classList.toggle("on", b.dataset.v === (prefs.guide?"on":"off")));
+  document.querySelectorAll("#ctrl-pacing button").forEach(b => b.classList.toggle("on", b.dataset.v === (prefs.pacing?"on":"off")));
+  document.querySelectorAll("#ctrl-autohide button").forEach(b => b.classList.toggle("on", b.dataset.v === (prefs.autoHide?"on":"off")));
+  document.querySelectorAll("#ctrl-font button").forEach(b => b.classList.toggle("on", b.dataset.v === prefs.font));
+  els.guide.classList.toggle("visible", prefs.guide);
+}
+function applyFontSize() {
+  els.word.style.fontSize = prefs.fontSize + "px";
+  let lbl = "M";
+  if (prefs.fontSize < 80) lbl = "S";
+  else if (prefs.fontSize < 110) lbl = "M";
+  else if (prefs.fontSize < 140) lbl = "L";
+  else lbl = "XL";
+  els.lblSize.textContent = lbl;
+}
+function applyFont() {
+  const families = {
+    serif:    'Fraunces, "Iowan Old Style", "Apple Garamond", Baskerville, Georgia, serif',
+    sans:     'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+    atkinson: '"Atkinson Hyperlegible", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+    mono:     '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace'
+  };
+  els.word.style.fontFamily = families[prefs.font] || families.serif;
+  // re-render to recompute anchor position for the new font's metrics
+  if (state.book && state.view === "reader") renderWord();
+}
+
+/* ============================================================
+ * Library rendering
+ * ============================================================ */
+async function renderShelf() {
+  const books = await dbAll();
+  books.sort((a,b) => (b.lastOpenedAt||b.addedAt||0) - (a.lastOpenedAt||a.addedAt||0));
+  els.shelf.innerHTML = "";
+  if (books.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.innerHTML = `
+      <h2>Your shelf is empty</h2>
+      <p>Add a book to start reading. The included demo will get you going in seconds.</p>
+      <button class="btn" id="btn-add-demo">Add demo book</button>
+      <button class="btn ghost" id="btn-add-empty">Upload your own</button>`;
+    els.shelf.appendChild(empty);
+    $("btn-add-demo").addEventListener("click", addDemoBook);
+    $("btn-add-empty").addEventListener("click", openAddSheet);
+    return;
+  }
+  for (const b of books) {
+    const totalWords = b.words ? b.words.length : 0;
+    const pos = b.position || 0;
+    const pct = totalWords > 1 ? Math.round(pos/(totalWords-1)*100) : 0;
+    const curWord = b.words && b.words[pos];
+    const curChapter = curWord && b.chapters ? b.chapters[curWord.chapterIndex] : null;
+    const hasProgress = pos > 0 && pct < 100;
+
+    const el = document.createElement("div");
+    el.className = "book";
+    el.dataset.id = b.id;
+
+    const cover = document.createElement("div");
+    cover.className = "cover";
+
+    if (b.coverBlob) {
+      const img = document.createElement("img");
+      img.src = URL.createObjectURL(b.coverBlob);
+      img.alt = "";
+      img.onload = () => URL.revokeObjectURL(img.src);
+      cover.appendChild(img);
+    } else {
+      const t = document.createElement("div");
+      t.className = "typo-title";
+      t.textContent = b.title || "Untitled";
+      const r = document.createElement("div"); r.className = "typo-rule";
+      const a = document.createElement("div"); a.className = "typo-author";
+      a.textContent = b.author || "—";
+      cover.appendChild(t); cover.appendChild(r); cover.appendChild(a);
+    }
+
+    if (pct > 0) {
+      const tag = document.createElement("div");
+      tag.className = "progress-tag";
+      tag.textContent = pct + "%";
+      cover.appendChild(tag);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    let actionsHtml = '';
+    if (hasProgress) actionsHtml += '<button data-act="restart" aria-label="Start over" title="Start over">⤺</button>';
+    actionsHtml += '<button data-act="del" aria-label="Delete">×</button>';
+    actions.innerHTML = actionsHtml;
+    cover.appendChild(actions);
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    let resumeLine = "";
+    if (hasProgress && curChapter) {
+      resumeLine = `<span class="resume">↩ Resume · ${escapeHtml(curChapter.title)}</span>`;
+    } else if (pct >= 100) {
+      resumeLine = `<span class="resume done">✓ Finished</span>`;
+    }
+    meta.innerHTML = `
+      <span class="title">${escapeHtml(b.title||"Untitled")}</span>
+      <span class="author">${b.author ? escapeHtml(b.author) : "—"}</span>
+      ${resumeLine}`;
+
+    el.appendChild(cover); el.appendChild(meta);
+    els.shelf.appendChild(el);
+
+    el.addEventListener("click", (e) => {
+      if (e.target.closest("[data-act=del]")) {
+        e.stopPropagation();
+        if (confirm("Remove “" + (b.title||"this book") + "” from your library?")) {
+          dbDelete(b.id).then(renderShelf);
+        }
+        return;
+      }
+      if (e.target.closest("[data-act=restart]")) {
+        e.stopPropagation();
+        b.position = 0;
+        dbPut(b).then(renderShelf);
+        toast("Reset to start");
+        return;
+      }
+      openBook(b.id);
+    });
+  }
+}
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ============================================================
+ * Adding books
+ * ============================================================ */
+let pendingAdd = { source: null, fileName: null, coverBlob: null };
+
+function openAddSheet() {
+  pendingAdd = { source: null, fileName: null, coverBlob: null };
+  els.addTitle.value = "";
+  els.addAuthor.value = "";
+  els.addDropLabel.innerHTML = "Tap to choose a <b>.rsvp</b> or <b>.txt</b> file";
+  els.coverImg.hidden = true;
+  els.coverPlaceholder.hidden = false;
+  showSheet(els.sheetAdd);
+}
+function closeAddSheet() { hideSheet(els.sheetAdd); }
+
+els.addDropzone.addEventListener("click", () => els.addFile.click());
+els.addFile.addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  const text = await f.text();
+  pendingAdd.source = text;
+  pendingAdd.fileName = f.name;
+  // try to extract title/author from .rsvp directives so the form pre-fills
+  const m1 = text.match(/^@title\s+(.+)$/m);
+  const m2 = text.match(/^@author\s+(.+)$/m);
+  if (m1) els.addTitle.value = m1[1].trim();
+  else els.addTitle.value = f.name.replace(/\.[^.]+$/, "");
+  if (m2) els.addAuthor.value = m2[1].trim();
+  els.addDropLabel.innerHTML = "Loaded <b>" + escapeHtml(f.name) + "</b> · " + Math.ceil(text.length/1024) + " KB";
+});
+
+els.coverThumb.addEventListener("click", () => els.addCover.click());
+els.addCover.addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  // resize to 600x900 max (2:3) before storing
+  const blob = await resizeImage(f, 600, 900);
+  pendingAdd.coverBlob = blob;
+  els.coverImg.src = URL.createObjectURL(blob);
+  els.coverImg.hidden = false;
+  els.coverPlaceholder.hidden = true;
+});
+$("btn-cover-clear").addEventListener("click", () => {
+  pendingAdd.coverBlob = null;
+  els.coverImg.hidden = true;
+  els.coverPlaceholder.hidden = false;
+});
+
+function resizeImage(file, maxW, maxH) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      // contain to maxW x maxH while preserving aspect
+      const ratio = Math.min(maxW/width, maxH/height, 1);
+      const w = Math.round(width * ratio);
+      const h = Math.round(height * ratio);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      canvas.toBlob(b => b ? res(b) : rej(new Error("blob")), "image/jpeg", 0.85);
+    };
+    img.onerror = rej;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+$("btn-add-cancel").addEventListener("click", closeAddSheet);
+$("btn-add-save").addEventListener("click", async () => {
+  if (!pendingAdd.source) { toast("Choose a file first"); return; }
+  const parsed = parseRsvp(pendingAdd.source);
+  const title = els.addTitle.value.trim() || parsed.title || pendingAdd.fileName || "Untitled";
+  const author = els.addAuthor.value.trim() || parsed.author || "";
+  const rec = {
+    id: uid(),
+    title, author,
+    source: pendingAdd.source,
+    coverBlob: pendingAdd.coverBlob || null,
+    coverType: pendingAdd.coverBlob ? pendingAdd.coverBlob.type : null,
+    words: parsed.words,
+    chapters: parsed.chapters,
+    position: 0,
+    addedAt: Date.now(),
+    lastOpenedAt: 0
+  };
+  await dbPut(rec);
+  closeAddSheet();
+  toast("Added “" + title + "”");
+  renderShelf();
+});
+
+async function addDemoBook() {
+  const parsed = parseRsvp(DEMO_RSVP);
+  const rec = {
+    id: uid(),
+    title: parsed.title, author: parsed.author,
+    source: DEMO_RSVP,
+    coverBlob: null, coverType: null,
+    words: parsed.words, chapters: parsed.chapters,
+    position: 0, addedAt: Date.now(), lastOpenedAt: 0
+  };
+  await dbPut(rec);
+  toast("Added demo book");
+  renderShelf();
+}
+
+/* ============================================================
+ * Sheet open/close
+ * ============================================================ */
+function showSheet(sheet) {
+  els.sheetBackdrop.classList.add("open");
+  sheet.classList.add("open");
+}
+function hideSheet(sheet) {
+  els.sheetBackdrop.classList.remove("open");
+  sheet.classList.remove("open");
+}
+els.sheetBackdrop.addEventListener("click", () => {
+  hideSheet(els.sheetSettings); hideSheet(els.sheetAdd);
+});
+
+/* ============================================================
+ * Reader
+ * ============================================================ */
+async function openBook(id) {
+  const rec = await dbGet(id);
+  if (!rec) { toast("Book not found"); return; }
+  state.book = rec;
+  state.bookId = id;
+  state.index = Math.min(rec.position || 0, Math.max(0, rec.words.length - 1));
+  prefs.lastBookId = id;
+  savePrefs(prefs);
+
+  rec.lastOpenedAt = Date.now();
+  await dbPut(rec);
+
+  // populate chapter dropdown
+  els.ctrlChapter.innerHTML = "";
+  if (rec.chapters && rec.chapters.length > 0) {
+    rec.chapters.forEach((c,i) => {
+      const opt = document.createElement("option");
+      opt.value = String(c.wordIndex);
+      opt.textContent = (i+1).toString().padStart(2,"0") + " · " + c.title;
+      els.ctrlChapter.appendChild(opt);
+    });
+    els.ctrlChapter.disabled = false;
+  } else {
+    const opt = document.createElement("option");
+    opt.textContent = "(no chapters)"; opt.disabled = true;
+    els.ctrlChapter.appendChild(opt);
+    els.ctrlChapter.disabled = true;
+  }
+
+  showView("reader");
+  // give the layout a frame to settle so anchor calc reads geometry correctly
+  requestAnimationFrame(() => {
+    renderWord();
+    resetChromeTimer();
+    // tell the user we remembered where they were
+    if (state.index > 0 && rec.words.length > 1) {
+      const cw = rec.words[state.index];
+      const ch = cw && rec.chapters ? rec.chapters[cw.chapterIndex] : null;
+      if (ch) toast("Resumed · " + ch.title, 2200);
+    }
+  });
+}
+
+function showView(name) {
+  state.view = name;
+  els.vLib.classList.toggle("active", name === "library");
+  els.vReader.classList.toggle("active", name === "reader");
+  if (name !== "reader") pause();
+}
+
+function renderWord() {
+  if (!state.book) return;
+  const total = state.book.words.length;
+  if (total === 0) { els.word.textContent = "—"; return; }
+  const i = Math.max(0, Math.min(total-1, state.index));
+  state.index = i;
+  const w = state.book.words[i];
+  const text = w.text;
+  const chars = Array.from(text);
+  const focus = findFocusLetterIndex(text);
+
+  els.word.innerHTML = "";
+  for (let k = 0; k < chars.length; k++) {
+    if (k === focus) {
+      const s = document.createElement("span");
+      s.className = "focus";
+      s.textContent = chars[k];
+      els.word.appendChild(s);
+    } else {
+      els.word.appendChild(document.createTextNode(chars[k]));
+    }
+  }
+
+  // position so focus letter center == anchorX
+  const stageRect = els.stage.getBoundingClientRect();
+  const anchorX = stageRect.width * (prefs.anchorPercent / 100);
+  els.word.style.left = "0px";
+  // measure
+  const focusEl = els.word.querySelector(".focus");
+  let focusCenter;
+  if (focusEl) {
+    const fr = focusEl.getBoundingClientRect();
+    const wr = els.word.getBoundingClientRect();
+    focusCenter = (fr.left - wr.left) + fr.width/2;
+  } else {
+    focusCenter = els.word.getBoundingClientRect().width / 2;
+  }
+  els.word.style.left = (anchorX - focusCenter) + "px";
+  els.guide.style.left = anchorX + "px";
+
+  // boundary mark
+  const next = state.book.words[i+1];
+  let show = false;
+  if (!next) show = true;
+  else if (next.chapterIndex !== w.chapterIndex || next.paragraphIndex !== w.paragraphIndex) show = true;
+  else if (w.sentenceEnd) show = true;
+  els.boundary.classList.toggle("visible", show);
+
+  // chrome readouts
+  const pct = total > 1 ? (i/(total-1))*100 : 0;
+  els.fill.style.width = pct.toFixed(2) + "%";
+  els.pct.textContent = Math.round(pct) + "%";
+  els.wordMeter.textContent = (i+1) + " / " + total;
+  const chap = state.book.chapters[w.chapterIndex];
+  els.chapterNow.textContent = chap ? chap.title : "—";
+  // elapsed time approx
+  const minsTotal = total / prefs.wpm;
+  const minsDone = i / prefs.wpm;
+  els.elapsed.textContent = formatMinutes(minsDone) + " / " + formatMinutes(minsTotal);
+
+  // sync chapter dropdown
+  if (chap && els.ctrlChapter && !els.ctrlChapter.disabled) {
+    if (els.ctrlChapter.value !== String(chap.wordIndex)) els.ctrlChapter.value = String(chap.wordIndex);
+  }
+
+  // persist position (debounced via savePosition)
+  saveBookPosition();
+}
+function formatMinutes(m) {
+  if (!isFinite(m)) return "—";
+  if (m < 1) return Math.round(m*60) + "s";
+  if (m < 60) return Math.round(m) + "m";
+  const h = Math.floor(m/60), mm = Math.round(m-h*60);
+  return h + "h " + mm + "m";
+}
+
+let savePosTimer = null;
+function saveBookPosition() {
+  if (!state.book) return;
+  state.book.position = state.index;
+  clearTimeout(savePosTimer);
+  savePosTimer = setTimeout(() => {
+    if (state.book) dbPut(state.book).catch(()=>{});
+  }, 400);
+}
+
+/* word advance */
+function scheduleNext() {
+  if (!state.playing || !state.book) return;
+  const cur = state.book.words[state.index];
+  const next = state.book.words[state.index + 1];
+  const baseInterval = 60000 / prefs.wpm;
+  const dur = durationForWord(cur ? cur.text : "", next ? next.text : "", baseInterval, prefs.pacing);
+  state.timer = setTimeout(() => {
+    if (!state.playing) return;
+    if (state.index < state.book.words.length - 1) {
+      state.index += 1;
+      renderWord();
+      scheduleNext();
+    } else {
+      pause();
+    }
+  }, Math.max(20, dur));
+}
+
+async function play() {
+  if (!state.book || state.book.words.length === 0) return;
+  if (state.index >= state.book.words.length - 1) state.index = 0;
+  state.playing = true;
+  setPlayIcon(true);
+  scheduleNext();
+  resetChromeTimer();
+  await acquireWakeLock();
+}
+function pause() {
+  state.playing = false;
+  if (state.timer) { clearTimeout(state.timer); state.timer = null; }
+  setPlayIcon(false);
+  releaseWakeLock();
+  showChrome();
+}
+function togglePlay() { state.playing ? pause() : play(); }
+function setPlayIcon(playing) {
+  if (playing) els.iconPlay.innerHTML = '<rect x="2" y="1" width="3" height="12" fill="currentColor"/><rect x="9" y="1" width="3" height="12" fill="currentColor"/>';
+  else         els.iconPlay.innerHTML = '<polygon points="3,1 13,7 3,13" fill="currentColor"/>';
+}
+
+function step(n) {
+  if (!state.book) return;
+  state.index = Math.max(0, Math.min(state.book.words.length-1, state.index+n));
+  renderWord();
+  if (state.playing) { clearTimeout(state.timer); scheduleNext(); }
+}
+function jumpToParagraph(dir) {
+  if (!state.book) return;
+  const cur = state.book.words[state.index];
+  let i = state.index + dir;
+  while (i >= 0 && i < state.book.words.length) {
+    const w = state.book.words[i];
+    if (w.chapterIndex !== cur.chapterIndex || w.paragraphIndex !== cur.paragraphIndex) {
+      let j = i;
+      while (j > 0) {
+        const p = state.book.words[j-1];
+        if (p.chapterIndex !== w.chapterIndex || p.paragraphIndex !== w.paragraphIndex) break;
+        j--;
+      }
+      state.index = j; renderWord();
+      if (state.playing) { clearTimeout(state.timer); scheduleNext(); }
+      return;
+    }
+    i += dir;
+  }
+}
+function jumpToChapter(dir) {
+  if (!state.book || !state.book.chapters || state.book.chapters.length===0) return;
+  const cur = state.book.words[state.index];
+  let target;
+  if (dir > 0) {
+    const next = state.book.chapters.find(c => c.wordIndex > state.index);
+    target = next ? next.wordIndex : state.book.words.length - 1;
+  } else {
+    const here = state.book.chapters[cur.chapterIndex];
+    if (here && state.index > here.wordIndex) target = here.wordIndex;
+    else target = state.book.chapters[Math.max(0, cur.chapterIndex-1)].wordIndex;
+  }
+  state.index = target; renderWord();
+  if (state.playing) { clearTimeout(state.timer); scheduleNext(); }
+}
+
+/* ============================================================
+ * Chrome auto-hide
+ * ============================================================ */
+const HIDE_DELAY = 1800;
+function showChrome() {
+  state.chromeHidden = false;
+  els.rTop.classList.remove("hidden", "top");
+  els.rBot.classList.remove("hidden", "bottom");
+}
+function hideChrome() {
+  if (!prefs.autoHide) return;
+  state.chromeHidden = true;
+  els.rTop.classList.add("hidden", "top");
+  els.rBot.classList.add("hidden", "bottom");
+}
+function resetChromeTimer() {
+  showChrome();
+  clearTimeout(state.hideTimer);
+  if (state.playing && prefs.autoHide) {
+    state.hideTimer = setTimeout(hideChrome, HIDE_DELAY);
+  }
+}
+
+/* tap on stage: if controls are hidden -> show them; else toggle play */
+els.stage.addEventListener("click", (e) => {
+  // ignore clicks on chrome
+  if (e.target.closest(".chrome")) return;
+  if (state.chromeHidden) {
+    showChrome();
+    clearTimeout(state.hideTimer);
+    state.hideTimer = setTimeout(() => { if (state.playing) hideChrome(); }, HIDE_DELAY);
+  } else {
+    togglePlay();
+  }
+});
+
+/* swipe gestures on the stage:
+   left/right  : prev/next word (with momentum: hard swipe = paragraph)
+   up          : open settings
+   down (small): exit to library
+*/
+let touchStart = null;
+els.stage.addEventListener("touchstart", (e) => {
+  if (e.touches.length !== 1) return;
+  touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+}, { passive: true });
+els.stage.addEventListener("touchend", (e) => {
+  if (!touchStart) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - touchStart.x;
+  const dy = t.clientY - touchStart.y;
+  const dt = Date.now() - touchStart.t;
+  touchStart = null;
+  const absX = Math.abs(dx), absY = Math.abs(dy);
+  // require a real gesture
+  if (absX < 30 && absY < 30) return;
+
+  if (absX > absY) {
+    // horizontal
+    const fast = (absX / dt) > 0.6 || absX > 160;
+    if (dx < 0) { fast ? jumpToParagraph(+1) : step(+1); }
+    else        { fast ? jumpToParagraph(-1) : step(-1); }
+  } else {
+    if (dy < 0) {
+      // up — settings
+      showSheet(els.sheetSettings);
+    } else {
+      // down — back to library (only if a fairly large swipe)
+      if (absY > 80) showView("library");
+    }
+  }
+}, { passive: true });
+
+/* ============================================================
+ * Wake Lock
+ * ============================================================ */
+async function acquireWakeLock() {
+  try {
+    if ("wakeLock" in navigator) {
+      state.wakeLock = await navigator.wakeLock.request("screen");
+      state.wakeLock.addEventListener("release", () => { state.wakeLock = null; });
+    }
+  } catch (e) { /* low battery, system pref, etc. */ }
+}
+function releaseWakeLock() {
+  if (state.wakeLock) {
+    try { state.wakeLock.release(); } catch {}
+    state.wakeLock = null;
+  }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && state.playing) acquireWakeLock();
+});
+
+/* ============================================================
+ * Hookups: settings sheet
+ * ============================================================ */
+els.ctrlWpm.addEventListener("input", (e) => {
+  prefs.wpm = parseInt(e.target.value, 10);
+  els.lblWpm.textContent = prefs.wpm + " wpm";
+  savePrefs(prefs);
+  if (state.book) renderWord();
+  if (state.playing) { clearTimeout(state.timer); scheduleNext(); }
+});
+els.ctrlAnchor.addEventListener("input", (e) => {
+  prefs.anchorPercent = parseInt(e.target.value, 10);
+  els.lblAnchor.textContent = prefs.anchorPercent + "%";
+  savePrefs(prefs);
+  if (state.book) renderWord();
+});
+els.ctrlSize.addEventListener("input", (e) => {
+  prefs.fontSize = parseInt(e.target.value, 10);
+  applyFontSize();
+  savePrefs(prefs);
+  if (state.book) renderWord();
+});
+els.ctrlChapter.addEventListener("change", (e) => {
+  const idx = parseInt(e.target.value, 10);
+  if (!isNaN(idx) && state.book) { state.index = idx; renderWord(); }
+});
+function wireSeg(rootId, onChange) {
+  const r = $(rootId);
+  r.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+    r.querySelectorAll("button").forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    onChange(b.dataset.v);
+  }));
+}
+wireSeg("ctrl-theme",   v => { prefs.dark = v==="dark"; applyTheme(); savePrefs(prefs); });
+wireSeg("ctrl-guide",   v => { prefs.guide = v==="on"; els.guide.classList.toggle("visible", prefs.guide); savePrefs(prefs); });
+wireSeg("ctrl-pacing",  v => { prefs.pacing = v==="on"; savePrefs(prefs); });
+wireSeg("ctrl-autohide",v => { prefs.autoHide = v==="on"; savePrefs(prefs); resetChromeTimer(); });
+wireSeg("ctrl-font",    v => { prefs.font = v; applyFont(); savePrefs(prefs); });
+
+/* transport */
+els.btnPlay.addEventListener("click", togglePlay);
+$("btn-prev-word").addEventListener("click", () => step(-1));
+$("btn-next-word").addEventListener("click", () => step(+1));
+$("btn-prev-para").addEventListener("click", () => jumpToParagraph(-1));
+$("btn-next-para").addEventListener("click", () => jumpToParagraph(+1));
+$("btn-prev-chap").addEventListener("click", () => jumpToChapter(-1));
+$("btn-next-chap").addEventListener("click", () => jumpToChapter(+1));
+$("btn-back-lib").addEventListener("click", () => { pause(); showView("library"); renderShelf(); });
+$("btn-settings").addEventListener("click", () => showSheet(els.sheetSettings));
+
+/* progress click-to-seek */
+els.track.addEventListener("click", (e) => {
+  if (!state.book) return;
+  const r = els.track.getBoundingClientRect();
+  const ratio = Math.max(0, Math.min(1, (e.clientX - r.left)/r.width));
+  state.index = Math.round(ratio * (state.book.words.length-1));
+  renderWord();
+  if (state.playing) { clearTimeout(state.timer); scheduleNext(); }
+});
+
+/* show controls on any tap inside chrome */
+[els.rTop, els.rBot].forEach(el => {
+  el.addEventListener("click", () => resetChromeTimer());
+});
+
+/* keyboard (helps on iPad with hardware keyboard, otherwise harmless) */
+document.addEventListener("keydown", (e) => {
+  if (state.view !== "reader") return;
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  if (e.key === " ") { e.preventDefault(); togglePlay(); }
+  else if (e.key === "ArrowLeft")  { e.preventDefault(); e.shiftKey ? jumpToChapter(-1) : step(-1); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); e.shiftKey ? jumpToChapter(+1) : step(+1); }
+});
+
+/* ============================================================
+ * Library buttons
+ * ============================================================ */
+$("btn-add").addEventListener("click", openAddSheet);
+
+/* Export = full library JSON (cover blobs as base64) */
+$("btn-export").addEventListener("click", async () => {
+  const books = await dbAll();
+  const exp = { version: 1, exportedAt: new Date().toISOString(), books: [] };
+  for (const b of books) {
+    let coverData = null;
+    if (b.coverBlob) {
+      coverData = await blobToBase64(b.coverBlob);
+    }
+    exp.books.push({
+      id: b.id, title: b.title, author: b.author, source: b.source,
+      coverData, coverType: b.coverType,
+      position: b.position, addedAt: b.addedAt, lastOpenedAt: b.lastOpenedAt
+    });
+  }
+  const json = JSON.stringify(exp, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "rsvp-library-" + new Date().toISOString().slice(0,10) + ".json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 5000);
+  toast("Exported " + books.length + " book" + (books.length===1?"":"s"));
+});
+$("btn-import").addEventListener("click", () => els.importFile.click());
+els.importFile.addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  try {
+    const text = await f.text();
+    const data = JSON.parse(text);
+    if (!data.books || !Array.isArray(data.books)) throw new Error("not a library export");
+    let imported = 0;
+    for (const b of data.books) {
+      const parsed = parseRsvp(b.source || "");
+      const rec = {
+        id: b.id || uid(),
+        title: b.title || parsed.title || "Untitled",
+        author: b.author || parsed.author || "",
+        source: b.source || "",
+        coverBlob: b.coverData ? await base64ToBlob(b.coverData, b.coverType||"image/jpeg") : null,
+        coverType: b.coverType || null,
+        words: parsed.words,
+        chapters: parsed.chapters,
+        position: b.position || 0,
+        addedAt: b.addedAt || Date.now(),
+        lastOpenedAt: b.lastOpenedAt || 0
+      };
+      await dbPut(rec); imported++;
+    }
+    toast("Imported " + imported + " book" + (imported===1?"":"s"));
+    renderShelf();
+  } catch (err) {
+    toast("Import failed: " + err.message);
+  }
+});
+
+/* Diagnostic */
+$("btn-diag").addEventListener("click", async () => {
+  const diag = getDiag();
+  const lsPrefs = (() => { try { return localStorage.getItem(PREFS_KEY); } catch { return null; } })();
+  const savedAt = (() => { try { return localStorage.getItem(PREFS_KEY + "-savedAt"); } catch { return null; } })();
+  let books = [];
+  try { books = await dbAll(); } catch {}
+  const now = Date.now();
+  const fmt = (ms) => {
+    if (!ms) return "never";
+    const t = new Date(parseInt(ms,10));
+    const sec = Math.round((now - parseInt(ms,10))/1000);
+    let ago;
+    if (sec < 60) ago = sec + "s ago";
+    else if (sec < 3600) ago = Math.round(sec/60) + "m ago";
+    else if (sec < 86400) ago = Math.round(sec/3600) + "h ago";
+    else ago = Math.round(sec/86400) + "d ago";
+    return t.toLocaleString() + "  (" + ago + ")";
+  };
+  const standalone = isStandalone() ? "yes (PWA from home screen)" : "no (running in browser)";
+  let txt = "";
+  txt += "── App ──\n";
+  txt += "Mode:           " + standalone + "\n";
+  txt += "Origin:         " + location.origin + "\n";
+  txt += "Path:           " + location.pathname + "\n";
+  txt += "User-Agent:     " + navigator.userAgent.substring(0,80) + "...\n\n";
+  txt += "── Boot history ──\n";
+  txt += "Boot count:     " + (diag.boots || "?") + "\n";
+  txt += "First boot:     " + fmt(diag.firstBootAt) + "\n";
+  txt += "Last boot:      " + fmt(diag.lastBootAt) + "\n\n";
+  txt += "── Settings (localStorage) ──\n";
+  txt += "Saved at:       " + fmt(savedAt) + "\n";
+  if (lsPrefs) {
+    try {
+      const p = JSON.parse(lsPrefs);
+      txt += "WPM:            " + p.wpm + "\n";
+      txt += "Anchor:         " + p.anchorPercent + "%\n";
+      txt += "Word size:      " + p.fontSize + "px\n";
+      txt += "Font:           " + p.font + "\n";
+      txt += "Theme:          " + (p.dark ? "dark" : "light") + "\n";
+    } catch {
+      txt += "(corrupted)\n";
+    }
+  } else {
+    txt += "(empty — settings won't persist)\n";
+  }
+  txt += "\n── Library (IndexedDB) ──\n";
+  txt += "Book count:     " + books.length + "\n";
+  for (const b of books.slice(0, 5)) {
+    const total = b.words ? b.words.length : 0;
+    const pos = b.position || 0;
+    const pct = total > 1 ? Math.round(pos/(total-1)*100) : 0;
+    txt += "• " + (b.title || "Untitled").substring(0,30) + "\n";
+    txt += "    pos " + pos + " / " + total + " (" + pct + "%)\n";
+    txt += "    last opened: " + fmt(b.lastOpenedAt) + "\n";
+  }
+  if (books.length > 5) txt += "... and " + (books.length-5) + " more\n";
+
+  txt += "\n── Diagnosis ──\n";
+  if (!lsPrefs) {
+    txt += "❌ Settings storage is empty.\n";
+    txt += "   Either this is a first launch, or storage was wiped.\n";
+  } else if (diag.boots && diag.boots > 1) {
+    txt += "✓ Settings survived " + diag.boots + " boots.\n";
+  }
+  if (!isStandalone() && /iPad|iPhone|iPod/.test(navigator.userAgent)) {
+    txt += "⚠ Not running as installed PWA. Add to Home Screen for\n";
+    txt += "  protected storage that doesn't get evicted.\n";
+  }
+
+  document.getElementById("diag-content").textContent = txt;
+  document.getElementById("diag-modal").classList.add("open");
+});
+$("btn-diag-close").addEventListener("click", () => document.getElementById("diag-modal").classList.remove("open"));
+$("btn-diag-clear").addEventListener("click", async () => {
+  if (!confirm("Reset all data? This deletes all books, covers, and settings on this device.")) return;
+  try { localStorage.clear(); } catch {}
+  try {
+    const all = await dbAll();
+    for (const b of all) await dbDelete(b.id);
+  } catch {}
+  document.getElementById("diag-modal").classList.remove("open");
+  toast("Cleared. Reloading…");
+  setTimeout(() => location.reload(), 600);
+});
+
+function blobToBase64(b) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(b);
+  });
+}
+async function base64ToBlob(dataUrl, mime) {
+  const r = await fetch(dataUrl);
+  return await r.blob();
+}
+
+/* ============================================================
+ * Install help (iOS Safari, not standalone)
+ * ============================================================ */
+function isIos() { return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); }
+function isStandalone() {
+  return window.matchMedia("(display-mode: standalone)").matches ||
+         window.navigator.standalone === true;
+}
+function maybeShowInstall() {
+  if (isIos() && !isStandalone() && !prefs.installPromptShown) {
+    els.installModal.classList.add("open");
+  }
+}
+$("btn-install-ok").addEventListener("click", () => {
+  prefs.installPromptShown = true; savePrefs(prefs);
+  els.installModal.classList.remove("open");
+});
+$("btn-install-later").addEventListener("click", () => {
+  els.installModal.classList.remove("open");
+});
+
+/* ============================================================
+ * Service worker — registered from inline Blob URL
+ *
+ * On iOS the SW must be on the same origin as the page. Inline blob
+ * SWs are NOT cross-origin (they share the page's origin) and work in
+ * Safari, but they have one catch: the SW scope is limited to the
+ * blob's URL by default. Apple's WebKit changed in iOS 18.x to allow
+ * blob: SWs but with limited scope — basically only the page itself.
+ *
+ * For full caching we need a real SW URL. That's only possible when
+ * served over http(s). When opened as a single file (file://), the SW
+ * is skipped — the page still works fine, just no offline cache.
+ *
+ * When this file is hosted at an https origin, the SW is registered
+ * normally from a /sw.js style URL passed via location.search override
+ * or, simpler, embedded as a same-origin fetch using a Blob if the
+ * server supports it.
+ *
+ * Practical compromise: we register the SW only when origin is http(s)
+ * and the user explicitly hosts this file. The app itself works fully
+ * without the SW — IndexedDB, settings, reading all work offline once
+ * the page is in the cache (Safari already caches HTML aggressively).
+ * ============================================================ */
+async function registerSW() {
+  if (!("serviceWorker" in navigator)) return;
+  if (location.protocol === "file:") return; // can't register from file://
+  try {
+    // Build a tiny SW that caches the page itself.
+    const swCode = `
+      const CACHE = 'rsvp-v1';
+      const ASSETS = [self.location.origin + '/', self.registration.scope];
+      self.addEventListener('install', e => {
+        e.waitUntil(self.skipWaiting());
+      });
+      self.addEventListener('activate', e => {
+        e.waitUntil(self.clients.claim());
+      });
+      self.addEventListener('fetch', e => {
+        if (e.request.method !== 'GET') return;
+        e.respondWith(
+          caches.open(CACHE).then(async (cache) => {
+            const cached = await cache.match(e.request);
+            const network = fetch(e.request).then(r => {
+              if (r && r.status === 200 && r.type === 'basic') {
+                cache.put(e.request, r.clone()).catch(()=>{});
+              }
+              return r;
+            }).catch(() => cached || new Response('', { status: 504 }));
+            return cached || network;
+          })
+        );
+      });
+    `;
+    const blob = new Blob([swCode], { type: "text/javascript" });
+    const url = URL.createObjectURL(blob);
+    await navigator.serviceWorker.register(url);
+  } catch (e) { /* SW not critical */ }
+}
+
+/* ============================================================
+ * Manifest — injected as a blob link so it's always available
+ * for "Add to Home Screen"
+ * ============================================================ */
+function injectManifest() {
+  const icon = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20512%20512%22%3E%3Crect%20width%3D%22512%22%20height%3D%22512%22%20rx%3D%22108%22%20fill%3D%22%2315140f%22%2F%3E%3Ctext%20x%3D%22256%22%20y%3D%22344%22%20text-anchor%3D%22middle%22%20font-family%3D%22Georgia%2C%20serif%22%20font-size%3D%22312%22%20font-weight%3D%22500%22%20font-style%3D%22italic%22%20fill%3D%22%23ece7d9%22%3ER%3C%2Ftext%3E%3Ccircle%20cx%3D%22360%22%20cy%3D%22196%22%20r%3D%2218%22%20fill%3D%22%23e26a45%22%2F%3E%3C%2Fsvg%3E";
+  const manifest = {
+    name: "RSVP Word Reader",
+    short_name: "RSVP",
+    description: "Distraction-free one-word-at-a-time reader",
+    start_url: location.pathname,
+    scope: location.pathname,
+    display: "standalone",
+    orientation: "any",
+    background_color: "#15140f",
+    theme_color: "#15140f",
+    icons: [
+      { src: icon, sizes: "any", type: "image/svg+xml", purpose: "any" },
+      { src: icon, sizes: "any", type: "image/svg+xml", purpose: "maskable" }
+    ]
+  };
+  const blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("link");
+  link.rel = "manifest";
+  link.href = url;
+  document.head.appendChild(link);
+}
+
+/* ============================================================
+ * Boot
+ * ============================================================ */
+async function boot() {
+  // Bump the boot counter immediately so the diagnostic captures every launch.
+  bumpBootCounter();
+
+  injectManifest();
+  applyAllPrefs();
+  await openDb();
+
+  // first run: seed demo if shelf empty
+  const all = await dbAll();
+  if (all.length === 0) {
+    await addDemoBook();
+  } else {
+    renderShelf();
+  }
+
+  registerSW();
+  // show install prompt on first run, after a beat
+  setTimeout(maybeShowInstall, 800);
+}
+
+window.addEventListener("resize", () => {
+  if (state.view === "reader" && state.book) renderWord();
+});
+
+/* Flush any pending position write when the tab is hidden / closed.
+   iOS Safari fires 'pagehide' reliably when the user swipes away to home or
+   switches apps. */
+function flushOnHide() {
+  if (state.book) {
+    state.book.position = state.index;
+    // synchronous-ish: kick the put off but don't await
+    dbPut(state.book).catch(()=>{});
+  }
+  savePrefs(prefs);
+}
+window.addEventListener("pagehide", flushOnHide);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushOnHide();
+});
+
+boot().catch(err => {
+  console.error(err);
+  alert("Boot error: " + err.message);
+});
+</script>
+</body>
+</html>
