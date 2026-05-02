@@ -2004,10 +2004,20 @@ function openAddSheet() {
 }
 function closeAddSheet() { hideSheet(els.sheetAdd); }
 
-els.addDropzone.addEventListener("click", () => els.addFile.click());
+/* The dropzone is a <label> wrapping the file <input>, so tapping it opens
+   the picker natively via label association. We do NOT add a JS click
+   handler — on iOS Safari, a JS .click() on a hidden file input fired from
+   a label-tap handler will sometimes cause the picker's change event to be
+   silently swallowed (the file gets picked but no event fires). Letting
+   the browser handle the label-input association is the only reliable path. */
 els.addFile.addEventListener("change", async (e) => {
   const f = e.target.files[0]; e.target.value = "";
   if (!f) return;
+
+  // Immediate feedback so the user knows the tap registered, before any
+  // async file-reading work begins.
+  els.addDropLabel.innerHTML = "Loading <b>" + escapeHtml(f.name) + "</b>…";
+
   const isEpub = /\.epub$/i.test(f.name) || f.type === "application/epub+zip";
 
   if (isEpub) {
@@ -2042,19 +2052,27 @@ els.addFile.addEventListener("change", async (e) => {
   }
 
   // .txt or .rsvp — read as text
-  const text = await f.text();
-  pendingAdd.source = text;
-  pendingAdd.parsed = null;
-  pendingAdd.fileName = f.name;
-  const m1 = text.match(/^@title\s+(.+)$/m);
-  const m2 = text.match(/^@author\s+(.+)$/m);
-  if (m1) els.addTitle.value = m1[1].trim();
-  else els.addTitle.value = f.name.replace(/\.[^.]+$/, "");
-  if (m2) els.addAuthor.value = m2[1].trim();
-  els.addDropLabel.innerHTML = "Loaded <b>" + escapeHtml(f.name) + "</b> · " + Math.ceil(text.length/1024) + " KB";
+  try {
+    const text = await f.text();
+    pendingAdd.source = text;
+    pendingAdd.parsed = null;
+    pendingAdd.fileName = f.name;
+    const m1 = text.match(/^@title\s+(.+)$/m);
+    const m2 = text.match(/^@author\s+(.+)$/m);
+    if (m1) els.addTitle.value = m1[1].trim();
+    else els.addTitle.value = f.name.replace(/\.[^.]+$/, "");
+    if (m2) els.addAuthor.value = m2[1].trim();
+    els.addDropLabel.innerHTML = "Loaded <b>" + escapeHtml(f.name) + "</b> · " + Math.ceil(text.length/1024) + " KB";
+  } catch (err) {
+    console.error(err);
+    els.addDropLabel.innerHTML = "Couldn't read file: " + escapeHtml(err.message || String(err));
+    pendingAdd.source = null;
+    pendingAdd.parsed = null;
+  }
 });
 
-els.coverThumb.addEventListener("click", () => els.addCover.click());
+/* coverThumb is a <label> — see note above; the native label-input link
+   handles the picker open. No JS click handler. */
 els.addCover.addEventListener("change", async (e) => {
   const f = e.target.files[0]; e.target.value = "";
   if (!f) return;
@@ -2591,7 +2609,7 @@ $("btn-reset-lib").addEventListener("click", () => {
 });
 
 /* Library background photo */
-$("lib-bg-dropzone").addEventListener("click", () => els.libBgFile.click());
+/* Library photo background — label wraps the input, native handling */
 els.libBgFile.addEventListener("change", async (e) => {
   const f = e.target.files[0]; e.target.value = "";
   if (!f) return;
