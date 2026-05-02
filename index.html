@@ -897,8 +897,8 @@ input[type="text"]:focus { outline: none; border-color: var(--ink); }
   <div class="field">
     <div class="field-label"><span>Book file</span></div>
     <label class="dropzone" id="add-dropzone">
-      <span id="add-dropzone-label">Tap to choose a <b>.rsvp</b> or <b>.txt</b> file</span>
-      <input type="file" id="add-file" accept=".rsvp,.txt,text/plain" hidden>
+      <span id="add-dropzone-label">Tap to choose a <b>.epub</b>, <b>.rsvp</b>, or <b>.txt</b> file</span>
+      <input type="file" id="add-file" accept=".rsvp,.txt,.epub,text/plain,application/epub+zip" hidden>
     </label>
   </div>
 
@@ -1041,6 +1041,255 @@ function endsSentence(token) {
   if (!t) return false;
   const last = t.slice(-1);
   return last === "!" || last === "?" || last === ".";
+}
+
+/* ============================================================
+ * EPUB parser
+ *
+ * EPUBs are zip files. Inside:
+ *   META-INF/container.xml  → points to the OPF file
+ *   <root>.opf              → metadata (title, author) + spine (ordered chapters)
+ *   *.xhtml / *.html        → individual chapters
+ *
+ * We unzip with JSZip (lazy-loaded from CDN), parse the XML to find the spine,
+ * then turn each spine item into a chapter for our internal book format.
+ * ============================================================ */
+let jsZipPromise = null;
+function loadJSZip() {
+  if (window.JSZip) return Promise.resolve(window.JSZip);
+  if (jsZipPromise) return jsZipPromise;
+  jsZipPromise = new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+    s.onload = () => res(window.JSZip);
+    s.onerror = () => rej(new Error("Couldn't load EPUB reader (offline?)"));
+    document.head.appendChild(s);
+  });
+  return jsZipPromise;
+}
+
+/* Decode HTML entities + strip tags to plain text, keeping paragraph boundaries
+   as double newlines so the downstream parser can detect them. */
+function htmlToParagraphs(html) {
+  // create a hidden element, let the browser parse it, then walk
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const body = doc.body || doc.documentElement;
+  if (!body) return [];
+
+  // remove script/style
+  body.querySelectorAll("script,style,nav,header,footer").forEach(n => n.remove());
+
+  // walk block-level elements as paragraph chunks
+  const blockTags = new Set(["P","DIV","LI","BLOCKQUOTE","H1","H2","H3","H4","H5","H6","BR","HR","SECTION","ARTICLE","PRE"]);
+  const chunks = [];
+  function walk(node) {
+    if (node.nodeType === 3) { // text
+      const t = node.nodeValue;
+      if (t) chunks.push({ kind: "text", value: t });
+    } else if (node.nodeType === 1) { // element
+      const tag = node.tagName.toUpperCase();
+      if (tag === "BR") { chunks.push({ kind: "break" }); return; }
+      const isBlock = blockTags.has(tag);
+      if (isBlock) chunks.push({ kind: "break" });
+      for (const child of node.childNodes) walk(child);
+      if (isBlock) chunks.push({ kind: "break" });
+    }
+  }
+  walk(body);
+
+  // collapse runs of breaks; build paragraphs
+  const paragraphs = [];
+  let buf = "";
+  const flush = () => {
+    const t = buf.replace(/\s+/g, " ").trim();
+    if (t) paragraphs.push(t);
+    buf = "";
+  };
+  for (const c of chunks) {
+    if (c.kind === "break") flush();
+    else buf += c.value;
+  }
+  flush();
+  return paragraphs;
+}
+
+async function parseEpub(file) {
+  const JSZip = await loadJSZip();
+  const buf = await file.arrayBuffer();
+  const zip = await JSZip.loadAsync(buf);
+
+  // 1. find the OPF path via META-INF/container.xml
+  const containerFile = zip.file("META-INF/container.xml");
+  if (!containerFile) throw new Error("Not a valid EPUB (missing container.xml)");
+  const containerXml = await containerFile.async("string");
+  const containerDoc = new DOMParser().parseFromString(containerXml, "application/xml");
+  const rootfile = containerDoc.querySelector("rootfile");
+  if (!rootfile) throw new Error("Couldn't find rootfile in EPUB");
+  const opfPath = rootfile.getAttribute("full-path");
+  if (!opfPath) throw new Error("rootfile has no full-path");
+
+  // 2. parse the OPF
+  const opfFile = zip.file(opfPath);
+  if (!opfFile) throw new Error("Couldn't find OPF file: " + opfPath);
+  const opfXml = await opfFile.async("string");
+  const opfDoc = new DOMParser().parseFromString(opfXml, "application/xml");
+
+  // metadata: title + author (Dublin Core)
+  const metaTitle  = opfDoc.querySelector("metadata > title, metadata > *|title");
+  const metaAuthor = opfDoc.querySelector("metadata > creator, metadata > *|creator");
+  const title  = metaTitle  ? metaTitle.textContent.trim()  : (file.name || "Untitled").replace(/\.epub$/i,"");
+  const author = metaAuthor ? metaAuthor.textContent.trim() : "";
+
+  // manifest: id → href map (also detect cover image)
+  const manifest = {};
+  let coverManifestId = null;
+  for (const item of opfDoc.querySelectorAll("manifest > item")) {
+    const id = item.getAttribute("id");
+    const href = item.getAttribute("href");
+    const props = item.getAttribute("properties") || "";
+    const mediaType = item.getAttribute("media-type") || "";
+    manifest[id] = { href, mediaType, properties: props };
+    if (props.split(/\s+/).includes("cover-image")) coverManifestId = id;
+  }
+  // older EPUBs use <meta name="cover" content="manifestId"/>
+  if (!coverManifestId) {
+    const m = opfDoc.querySelector('metadata > meta[name="cover"]');
+    if (m) coverManifestId = m.getAttribute("content");
+  }
+
+  // resolve EPUB-internal paths (relative to the OPF)
+  const opfDir = opfPath.includes("/") ? opfPath.replace(/[^\/]+$/, "") : "";
+  const resolvePath = (href) => {
+    if (!href) return null;
+    // EPUB hrefs may be percent-encoded — decode for zip lookup
+    let p = decodeURIComponent(href);
+    // resolve relative paths against opfDir
+    if (!p.startsWith("/")) p = opfDir + p;
+    // strip any fragment (#anchor) — the zip path doesn't have them
+    p = p.split("#")[0];
+    // collapse "./" and "../"
+    const segs = p.split("/");
+    const out = [];
+    for (const s of segs) {
+      if (s === "" || s === ".") continue;
+      if (s === "..") out.pop();
+      else out.push(s);
+    }
+    return out.join("/");
+  };
+
+  // 3. spine — the ordered list of chapter idrefs
+  const spineItems = [...opfDoc.querySelectorAll("spine > itemref")].map(i => i.getAttribute("idref"));
+
+  // 4. (optional) toc.ncx for nice chapter titles
+  // try to find an .ncx file in the manifest
+  let titleByHref = {};
+  const ncxItem = Object.values(manifest).find(x => x.mediaType === "application/x-dtbncx+xml");
+  if (ncxItem) {
+    try {
+      const ncxPath = resolvePath(ncxItem.href);
+      const ncxFile = zip.file(ncxPath);
+      if (ncxFile) {
+        const ncxXml = await ncxFile.async("string");
+        const ncxDoc = new DOMParser().parseFromString(ncxXml, "application/xml");
+        for (const np of ncxDoc.querySelectorAll("navPoint")) {
+          const lab = np.querySelector("navLabel > text");
+          const content = np.querySelector("content");
+          if (lab && content) {
+            const src = content.getAttribute("src");
+            const resolved = resolvePath(src);
+            if (resolved) titleByHref[resolved] = lab.textContent.trim();
+          }
+        }
+      }
+    } catch { /* ncx is optional */ }
+  }
+
+  // 5. build chapters + words
+  const words = [];
+  const chapters = [];
+  let chapterIndex = -1;
+  let paragraphIndex = -1;
+  const chunks = []; // for the synthetic .rsvp source we'll keep around
+
+  for (let i = 0; i < spineItems.length; i++) {
+    const id = spineItems[i];
+    const item = manifest[id];
+    if (!item) continue;
+    const path = resolvePath(item.href);
+    if (!path) continue;
+    const z = zip.file(path);
+    if (!z) continue;
+    let html;
+    try { html = await z.async("string"); } catch { continue; }
+
+    // Pick a title: TOC label > first heading > "Chapter N"
+    let chapterTitle = titleByHref[path];
+    let firstHeadingText = null;
+    if (!chapterTitle) {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const h = doc.querySelector("h1,h2,h3");
+      if (h && h.textContent.trim()) {
+        chapterTitle = h.textContent.trim().replace(/\s+/g," ");
+        firstHeadingText = chapterTitle;
+      }
+    } else {
+      // we already have a title from the NCX — strip the redundant heading
+      // from the body so the user doesn't read the chapter title twice
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const h = doc.querySelector("h1,h2,h3");
+      if (h) firstHeadingText = h.textContent.trim().replace(/\s+/g," ");
+    }
+    if (!chapterTitle) chapterTitle = "Chapter " + (chapters.length + 1);
+    if (chapterTitle.length > 80) chapterTitle = chapterTitle.slice(0, 77) + "…";
+
+    let paragraphs = htmlToParagraphs(html);
+    // drop a leading paragraph if it's just the heading we already used as the title
+    if (firstHeadingText && paragraphs.length > 0) {
+      const norm = (s) => s.replace(/\s+/g," ").trim().toLowerCase();
+      if (norm(paragraphs[0]) === norm(firstHeadingText)) paragraphs.shift();
+    }
+    if (paragraphs.length === 0) continue;
+
+    chapterIndex += 1;
+    chapters.push({ title: chapterTitle, wordIndex: words.length });
+    paragraphIndex = -1;
+    chunks.push("@chapter " + chapterTitle);
+
+    for (const para of paragraphs) {
+      paragraphIndex += 1;
+      chunks.push("@para");
+      chunks.push(para);
+      const tokens = para.split(/\s+/).filter(Boolean);
+      for (const tok of tokens) {
+        words.push({
+          text: tok,
+          chapterIndex,
+          paragraphIndex,
+          sentenceEnd: endsSentence(tok)
+        });
+      }
+    }
+  }
+
+  // 6. cover image (optional)
+  let coverBlob = null;
+  if (coverManifestId && manifest[coverManifestId]) {
+    try {
+      const coverPath = resolvePath(manifest[coverManifestId].href);
+      const cf = zip.file(coverPath);
+      if (cf) {
+        const ab = await cf.async("blob");
+        coverBlob = new Blob([ab], { type: manifest[coverManifestId].mediaType || "image/jpeg" });
+      }
+    } catch { /* cover is optional */ }
+  }
+
+  // synthetic .rsvp source for export round-tripping
+  const source = "@rsvp 1\n@title " + title + "\n@author " + author + "\n" + chunks.join("\n") + "\n";
+
+  if (words.length === 0) throw new Error("EPUB had no readable text");
+  return { title, author, words, chapters, source, coverBlob };
 }
 
 /* ============================================================
@@ -1446,13 +1695,13 @@ function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;",
 /* ============================================================
  * Adding books
  * ============================================================ */
-let pendingAdd = { source: null, fileName: null, coverBlob: null };
+let pendingAdd = { source: null, parsed: null, fileName: null, coverBlob: null };
 
 function openAddSheet() {
-  pendingAdd = { source: null, fileName: null, coverBlob: null };
+  pendingAdd = { source: null, parsed: null, fileName: null, coverBlob: null };
   els.addTitle.value = "";
   els.addAuthor.value = "";
-  els.addDropLabel.innerHTML = "Tap to choose a <b>.rsvp</b> or <b>.txt</b> file";
+  els.addDropLabel.innerHTML = "Tap to choose a <b>.epub</b>, <b>.rsvp</b>, or <b>.txt</b> file";
   els.coverImg.hidden = true;
   els.coverPlaceholder.hidden = false;
   showSheet(els.sheetAdd);
@@ -1463,10 +1712,44 @@ els.addDropzone.addEventListener("click", () => els.addFile.click());
 els.addFile.addEventListener("change", async (e) => {
   const f = e.target.files[0]; e.target.value = "";
   if (!f) return;
+  const isEpub = /\.epub$/i.test(f.name) || f.type === "application/epub+zip";
+
+  if (isEpub) {
+    els.addDropLabel.innerHTML = "Reading <b>" + escapeHtml(f.name) + "</b>…";
+    try {
+      const parsed = await parseEpub(f);
+      // store the already-parsed structure in pendingAdd
+      pendingAdd.source = parsed.source;          // synthetic .rsvp text we generated
+      pendingAdd.parsed = { words: parsed.words, chapters: parsed.chapters };
+      pendingAdd.fileName = f.name;
+      els.addTitle.value  = parsed.title  || f.name.replace(/\.[^.]+$/, "");
+      els.addAuthor.value = parsed.author || "";
+      // try to grab a cover from the EPUB if it has one
+      if (parsed.coverBlob) {
+        const small = await resizeImage(parsed.coverBlob, 600, 900);
+        pendingAdd.coverBlob = small;
+        els.coverImg.src = URL.createObjectURL(small);
+        els.coverImg.hidden = false;
+        els.coverPlaceholder.hidden = true;
+      }
+      els.addDropLabel.innerHTML =
+        "Loaded <b>" + escapeHtml(f.name) + "</b> · " +
+        parsed.chapters.length + " chapter" + (parsed.chapters.length===1?"":"s") +
+        " · " + parsed.words.length.toLocaleString() + " words";
+    } catch (err) {
+      console.error(err);
+      els.addDropLabel.innerHTML = "Couldn't read EPUB: " + escapeHtml(err.message || String(err));
+      pendingAdd.source = null;
+      pendingAdd.parsed = null;
+    }
+    return;
+  }
+
+  // .txt or .rsvp — read as text
   const text = await f.text();
   pendingAdd.source = text;
+  pendingAdd.parsed = null;
   pendingAdd.fileName = f.name;
-  // try to extract title/author from .rsvp directives so the form pre-fills
   const m1 = text.match(/^@title\s+(.+)$/m);
   const m2 = text.match(/^@author\s+(.+)$/m);
   if (m1) els.addTitle.value = m1[1].trim();
@@ -1514,7 +1797,9 @@ function resizeImage(file, maxW, maxH) {
 $("btn-add-cancel").addEventListener("click", closeAddSheet);
 $("btn-add-save").addEventListener("click", async () => {
   if (!pendingAdd.source) { toast("Choose a file first"); return; }
-  const parsed = parseRsvp(pendingAdd.source);
+  // If we already have a parsed structure (e.g. from an EPUB), use it.
+  // Otherwise parse the source text as .rsvp/.txt.
+  const parsed = pendingAdd.parsed || parseRsvp(pendingAdd.source);
   const title = els.addTitle.value.trim() || parsed.title || pendingAdd.fileName || "Untitled";
   const author = els.addAuthor.value.trim() || parsed.author || "";
   const rec = {
