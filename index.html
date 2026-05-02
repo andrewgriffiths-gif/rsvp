@@ -92,41 +92,48 @@ body {
   display: flex;
   position: relative;
 }
-#view-library::before {
-  /* photo background layer — set via JS as a CSS variable */
-  content: "";
+/* photo background layer — sits *inside* the view (z=0) below content (z=1+).
+   We don't use z-index:-1/-2 because some iOS Safari setups don't paint
+   negative-z pseudo-elements behind a parent that has its own bg. */
+#view-library .lib-bg-photo {
   position: fixed;
   inset: 0;
   background-image: var(--lib-bg-image, none);
   background-size: cover;
   background-position: center;
-  z-index: -2;
   pointer-events: none;
+  z-index: 0;
 }
-#view-library::after {
-  /* dimming overlay over the photo */
-  content: "";
+#view-library .lib-bg-dim {
   position: fixed;
   inset: 0;
-  background: var(--bg);
+  background: #000;
   opacity: var(--lib-bg-dim, 0);
-  z-index: -1;
   pointer-events: none;
+  z-index: 1;
+}
+#view-library .lib-header,
+#view-library .shelf {
+  position: relative;
+  z-index: 2;
 }
 #view-library.has-bg { background: transparent; }
-#view-library.has-bg .lib-header,
-#view-library.has-bg .empty {
-  /* readable backdrop strip behind text when a photo is in use */
-  position: relative;
-}
 #view-library.has-bg .lib-header {
-  background: linear-gradient(to bottom, var(--bg) 70%, transparent);
-  margin: -18px -20px 0;
-  padding: 18px 20px 18px;
+  /* a soft scrim behind the header so the title and buttons stay readable
+     against any photo */
+  background: linear-gradient(to bottom, rgba(0,0,0,0.35) 0%, transparent 100%);
+  margin: calc(-1 * var(--safe-top) - 18px) 0 0;
+  padding: calc(var(--safe-top) + 18px) 20px 18px;
   border-bottom-color: transparent;
 }
-#view-library.has-bg .book .meta .title { text-shadow: 0 1px 2px rgba(0,0,0,0.4); }
-#view-library.has-bg .book .meta .author { text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+#view-library.has-bg .lib-mark { color: #fff; }
+#view-library.has-bg .lib-mark .accent { color: #ff8a5c; }
+#view-library.has-bg .lib-tag { color: rgba(255,255,255,0.75); }
+#view-library.has-bg .icon-btn { background: rgba(0,0,0,0.5); border-color: rgba(255,255,255,0.3); color: #fff; }
+#view-library.has-bg .book .meta .title { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
+#view-library.has-bg .book .meta .author { color: rgba(255,255,255,0.75); text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+#view-library.has-bg .empty h2,
+#view-library.has-bg .empty p { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
 
 .lib-header {
   padding: 0 20px 18px;
@@ -833,6 +840,8 @@ input[type="text"]:focus { outline: none; border-color: var(--ink); }
 
 <!-- ════════════ LIBRARY VIEW ════════════ -->
 <div class="view active" id="view-library">
+  <div class="lib-bg-photo" id="lib-bg-photo"></div>
+  <div class="lib-bg-dim" id="lib-bg-dim-layer"></div>
   <header class="lib-header">
     <div class="lib-mast">
       <div>
@@ -934,8 +943,8 @@ input[type="text"]:focus { outline: none; border-color: var(--ink); }
 
   <div class="field" style="border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); background:var(--paper);">
     <div class="field-label" style="font-family:var(--serif); font-size:13px; letter-spacing:0; text-transform:none; color:var(--ink);">
-      <span>Personalisation</span>
-      <button class="btn ghost" id="btn-reset-colors" type="button" style="font-size:9px; padding:5px 9px; letter-spacing:0.12em;">Reset to theme</button>
+      <span>Reader appearance</span>
+      <button class="btn ghost" id="btn-reset-colors" type="button" style="font-size:9px; padding:5px 9px; letter-spacing:0.12em;">Reset</button>
     </div>
   </div>
 
@@ -973,8 +982,49 @@ input[type="text"]:focus { outline: none; border-color: var(--ink); }
     </div>
   </div>
 
+  <div class="field" style="border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); background:var(--paper);">
+    <div class="field-label" style="font-family:var(--serif); font-size:13px; letter-spacing:0; text-transform:none; color:var(--ink);">
+      <span>Library appearance</span>
+      <button class="btn ghost" id="btn-reset-lib" type="button" style="font-size:9px; padding:5px 9px; letter-spacing:0.12em;">Reset</button>
+    </div>
+  </div>
+
   <div class="field">
-    <div class="field-label"><span>Library background</span></div>
+    <div class="field-label"><span>Library background color</span></div>
+    <div class="swatch-row" id="ctrl-libbg-swatches">
+      <span class="swatch" data-c="" title="Theme default" style="background:linear-gradient(135deg,#faf6ec 50%,#1c1a14 50%);"></span>
+      <span class="swatch" data-c="#15140f" style="background:#15140f;"></span>
+      <span class="swatch" data-c="#1c2230" style="background:#1c2230;"></span>
+      <span class="swatch" data-c="#251f17" style="background:#251f17;"></span>
+      <span class="swatch" data-c="#1d2a24" style="background:#1d2a24;"></span>
+      <span class="swatch" data-c="#3a2a35" style="background:#3a2a35;"></span>
+      <span class="swatch" data-c="#faf6ec" style="background:#faf6ec; border-color:var(--ink-faint);"></span>
+      <span class="swatch" data-c="#f4e9d0" style="background:#f4e9d0; border-color:var(--ink-faint);"></span>
+      <label class="swatch swatch-pick" title="Pick custom color">
+        <input type="color" id="ctrl-libbg-pick">
+      </label>
+    </div>
+  </div>
+
+  <div class="field">
+    <div class="field-label"><span>Library text color</span></div>
+    <div class="swatch-row" id="ctrl-libink-swatches">
+      <span class="swatch" data-c="" title="Theme default" style="background:linear-gradient(135deg,#1a1814 50%,#ece7d9 50%);"></span>
+      <span class="swatch" data-c="#ece7d9" style="background:#ece7d9; border-color:var(--ink-faint);"></span>
+      <span class="swatch" data-c="#ffffff" style="background:#ffffff; border-color:var(--ink-faint);"></span>
+      <span class="swatch" data-c="#1a1814" style="background:#1a1814;"></span>
+      <span class="swatch" data-c="#a89368" style="background:#a89368;"></span>
+      <span class="swatch" data-c="#7a9aa8" style="background:#7a9aa8;"></span>
+      <span class="swatch" data-c="#b66a4a" style="background:#b66a4a;"></span>
+      <span class="swatch" data-c="#9aa87a" style="background:#9aa87a;"></span>
+      <label class="swatch swatch-pick" title="Pick custom color">
+        <input type="color" id="ctrl-libink-pick">
+      </label>
+    </div>
+  </div>
+
+  <div class="field">
+    <div class="field-label"><span>Library photo background</span></div>
     <div style="display:flex; gap:8px; align-items:stretch;">
       <label class="dropzone" id="lib-bg-dropzone" style="padding:14px; flex:1; min-width:0;">
         <span id="lib-bg-label">Tap to choose a photo</span>
@@ -985,7 +1035,7 @@ input[type="text"]:focus { outline: none; border-color: var(--ink); }
   </div>
 
   <div class="field" id="lib-bg-dim-field" style="display:none;">
-    <div class="field-label"><span>Background dimming</span><b id="lbl-lib-dim">55%</b></div>
+    <div class="field-label"><span>Photo dimming</span><b id="lbl-lib-dim">55%</b></div>
     <input type="range" id="ctrl-lib-dim" min="0" max="85" step="5" value="55">
   </div>
 
@@ -1578,6 +1628,7 @@ const defaultPrefs = {
   guide: true, pacing: true, dark: true, autoHide: true,
   // custom colors — null means "use the theme defaults"
   readerBg: null, readerInk: null, readerAccent: null,
+  libBg: null, libInk: null,
   // library photo background (data URL or null)
   libBgImage: null, libBgDim: 0.55,
   installPromptShown: false, lastBookId: null
@@ -1676,6 +1727,7 @@ const els = {
   ctrlChapter: $("ctrl-chapter"),
   // personalisation
   bgPick: $("ctrl-bg-pick"), inkPick: $("ctrl-ink-pick"),
+  libBgPick: $("ctrl-libbg-pick"), libInkPick: $("ctrl-libink-pick"),
   libBgFile: $("lib-bg-file"), libBgLabel: $("lib-bg-label"),
   libBgDimField: $("lib-bg-dim-field"), ctrlLibDim: $("ctrl-lib-dim"),
   lblLibDim: $("lbl-lib-dim"),
@@ -1716,6 +1768,7 @@ function applyAllPrefs() {
   applyFontSize();
   applyFont();
   applyCustomColors();
+  applyLibraryColors();
   applyLibraryBg();
   document.querySelectorAll("#ctrl-theme button").forEach(b => b.classList.toggle("on", b.dataset.v === (prefs.dark?"dark":"light")));
   document.querySelectorAll("#ctrl-guide button").forEach(b => b.classList.toggle("on", b.dataset.v === (prefs.guide?"on":"off")));
@@ -1723,8 +1776,10 @@ function applyAllPrefs() {
   document.querySelectorAll("#ctrl-autohide button").forEach(b => b.classList.toggle("on", b.dataset.v === (prefs.autoHide?"on":"off")));
   document.querySelectorAll("#ctrl-font button").forEach(b => b.classList.toggle("on", b.dataset.v === prefs.font));
   // mark selected swatches
-  syncSwatchSelection("ctrl-bg-swatches",  prefs.readerBg);
-  syncSwatchSelection("ctrl-ink-swatches", prefs.readerInk);
+  syncSwatchSelection("ctrl-bg-swatches",     prefs.readerBg);
+  syncSwatchSelection("ctrl-ink-swatches",    prefs.readerInk);
+  syncSwatchSelection("ctrl-libbg-swatches",  prefs.libBg);
+  syncSwatchSelection("ctrl-libink-swatches", prefs.libInk);
   els.guide.classList.toggle("visible", prefs.guide);
 }
 
@@ -1754,12 +1809,37 @@ function applyCustomColors() {
   }
 }
 
+function applyLibraryColors() {
+  const lib = els.vLib;
+  if (!lib) return;
+  if (prefs.libBg) {
+    lib.style.setProperty("--bg", prefs.libBg);
+    lib.style.setProperty("--paper", prefs.libBg);
+    lib.style.backgroundColor = prefs.libBg;
+  } else {
+    lib.style.removeProperty("--bg");
+    lib.style.removeProperty("--paper");
+    lib.style.backgroundColor = "";
+  }
+  if (prefs.libInk) {
+    lib.style.setProperty("--ink", prefs.libInk);
+    lib.style.setProperty("--ink-soft", prefs.libInk);
+    lib.style.setProperty("--ink-faint", prefs.libInk);
+  } else {
+    lib.style.removeProperty("--ink");
+    lib.style.removeProperty("--ink-soft");
+    lib.style.removeProperty("--ink-faint");
+  }
+}
+
 function applyLibraryBg() {
   const lib = els.vLib;
   if (!lib) return;
+  const photoEl = $("lib-bg-photo");
+  const dimEl = $("lib-bg-dim-layer");
   if (prefs.libBgImage) {
-    lib.style.setProperty("--lib-bg-image", `url("${prefs.libBgImage}")`);
-    lib.style.setProperty("--lib-bg-dim", String(prefs.libBgDim));
+    if (photoEl) photoEl.style.backgroundImage = `url("${prefs.libBgImage}")`;
+    if (dimEl) dimEl.style.opacity = String(prefs.libBgDim);
     lib.classList.add("has-bg");
     if (els.libBgLabel) els.libBgLabel.textContent = "Photo loaded · tap to replace";
     if (els.libBgDimField) els.libBgDimField.style.display = "";
@@ -1768,8 +1848,8 @@ function applyLibraryBg() {
       if (els.lblLibDim) els.lblLibDim.textContent = Math.round(prefs.libBgDim * 100) + "%";
     }
   } else {
-    lib.style.removeProperty("--lib-bg-image");
-    lib.style.removeProperty("--lib-bg-dim");
+    if (photoEl) photoEl.style.backgroundImage = "";
+    if (dimEl) dimEl.style.opacity = "0";
     lib.classList.remove("has-bg");
     if (els.libBgLabel) els.libBgLabel.textContent = "Tap to choose a photo";
     if (els.libBgDimField) els.libBgDimField.style.display = "none";
@@ -2464,8 +2544,50 @@ $("btn-reset-colors").addEventListener("click", () => {
   syncSwatchSelection("ctrl-bg-swatches",  null);
   syncSwatchSelection("ctrl-ink-swatches", null);
   savePrefs(prefs);
-  toast("Reset to theme colors");
+  toast("Reader colors reset");
   if (state.book && state.view === "reader") renderWord();
+});
+
+/* Library color customization */
+function wireLibSwatchRow(rowId, prefKey) {
+  const row = document.getElementById(rowId);
+  if (!row) return;
+  row.querySelectorAll(".swatch[data-c]").forEach(s => {
+    s.addEventListener("click", () => {
+      const c = s.dataset.c || null;
+      prefs[prefKey] = c;
+      applyLibraryColors();
+      syncSwatchSelection(rowId, c);
+      savePrefs(prefs);
+    });
+  });
+}
+wireLibSwatchRow("ctrl-libbg-swatches",  "libBg");
+wireLibSwatchRow("ctrl-libink-swatches", "libInk");
+
+els.libBgPick.addEventListener("input", (e) => {
+  prefs.libBg = e.target.value;
+  applyLibraryColors();
+  syncSwatchSelection("ctrl-libbg-swatches", prefs.libBg);
+  savePrefs(prefs);
+});
+els.libInkPick.addEventListener("input", (e) => {
+  prefs.libInk = e.target.value;
+  applyLibraryColors();
+  syncSwatchSelection("ctrl-libink-swatches", prefs.libInk);
+  savePrefs(prefs);
+});
+
+$("btn-reset-lib").addEventListener("click", () => {
+  prefs.libBg = null;
+  prefs.libInk = null;
+  prefs.libBgImage = null;
+  applyLibraryColors();
+  applyLibraryBg();
+  syncSwatchSelection("ctrl-libbg-swatches",  null);
+  syncSwatchSelection("ctrl-libink-swatches", null);
+  savePrefs(prefs);
+  toast("Library reset");
 });
 
 /* Library background photo */
@@ -2495,7 +2617,8 @@ $("btn-lib-bg-clear").addEventListener("click", () => {
 els.ctrlLibDim.addEventListener("input", (e) => {
   prefs.libBgDim = parseInt(e.target.value, 10) / 100;
   els.lblLibDim.textContent = e.target.value + "%";
-  els.vLib.style.setProperty("--lib-bg-dim", String(prefs.libBgDim));
+  const dimEl = $("lib-bg-dim-layer");
+  if (dimEl) dimEl.style.opacity = String(prefs.libBgDim);
   savePrefs(prefs);
 });
 
